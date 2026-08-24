@@ -51,11 +51,14 @@ def _ink_detail_value_fn(channel: str, key: str) -> Callable[[dict[str, Any]], A
 
 
 def _ink_status_value_fn(channel: str) -> Callable[[dict[str, Any]], str | None]:
-    return lambda data: _map_ink_status(_ink_attributes(data, channel).get("status"))
+    return lambda data: _map_ink_status(_ink_attributes(data, channel))
 
 
 def _ink_status_attributes_fn(channel: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    return lambda data: {"raw_status": _ink_attributes(data, channel).get("status")}
+    return lambda data: {
+        "raw_status": _ink_attributes(data, channel).get("status"),
+        "expired": _ink_attributes(data, channel).get("expired"),
+    }
 
 
 def _ink_date_fn(channel: str, key: str) -> Callable[[dict[str, Any]], date | None]:
@@ -244,11 +247,6 @@ INK_SENSORS: tuple[EufyMakeSensorDescription, ...] = tuple(
             value_fn=_ink_detail_value_fn(channel, "days_until_expiration"),
         ),
         EufyMakeSensorDescription(
-            key=f"ink_{channel.lower()}_expired",
-            name=f"{name} ink expired",
-            value_fn=_ink_detail_value_fn(channel, "expired"),
-        ),
-        EufyMakeSensorDescription(
             key=f"ink_{channel.lower()}_manufacture_date",
             name=f"{name} ink manufacture date",
             device_class=SensorDeviceClass.DATE,
@@ -291,18 +289,12 @@ WASTE_SENSORS: tuple[EufyMakeSensorDescription, ...] = (
         ),
     ),
     EufyMakeSensorDescription(
-        key="waste_ink_expired",
-        name="Waste ink expired",
-        value_fn=lambda data: _waste_ink_attributes(data).get("expired"),
-    ),
-    EufyMakeSensorDescription(
         key="waste_ink_status",
         name="Waste ink status",
-        value_fn=lambda data: _map_ink_status(
-            _waste_ink_attributes(data).get("status")
-        ),
+        value_fn=lambda data: _map_ink_status(_waste_ink_attributes(data)),
         attributes_fn=lambda data: {
-            "raw_status": _waste_ink_attributes(data).get("status")
+            "raw_status": _waste_ink_attributes(data).get("status"),
+            "expired": _waste_ink_attributes(data).get("expired"),
         },
     ),
 )
@@ -573,9 +565,19 @@ def _map_int(value: Any, mapping: dict[int, str], fallback: str) -> str | None:
     return mapping.get(int_value, fallback)
 
 
-def _map_ink_status(value: Any) -> str | None:
-    statuses = {
-        0: "No cartridge inserted",
-        1: "Cartridge inserted",
-    }
-    return _map_int(value, statuses, "Unknown status")
+def _map_ink_status(attributes: dict[str, Any]) -> str | None:
+    raw_status = attributes.get("status")
+    try:
+        status = int(raw_status)
+    except (TypeError, ValueError):
+        status = None
+
+    if status == 0:
+        return "Not inserted"
+    if attributes.get("expired") is True:
+        return "Expired"
+    if status == 1:
+        return "Inserted"
+    if status is not None:
+        return "Unknown"
+    return None

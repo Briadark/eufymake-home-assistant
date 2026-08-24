@@ -323,6 +323,60 @@ def test_coordinator_live_data_exposes_test_print_progress() -> None:
     }
 
 
+def test_coordinator_live_data_exposes_e1_sound_and_light_settings() -> None:
+    _stub_homeassistant()
+    package = types.ModuleType("custom_components.eufymake_e1")
+    package.__path__ = [str(COMPONENT_DIR)]
+    sys.modules["custom_components.eufymake_e1"] = package
+    sys.modules["custom_components.eufymake_e1.const"] = _load_real_const()
+
+    runtime = _load_module(
+        "custom_components.eufymake_e1.runtime",
+        COMPONENT_DIR / "runtime.py",
+    )
+    coordinator = _load_module(
+        "custom_components.eufymake_e1.coordinator",
+        COMPONENT_DIR / "coordinator.py",
+    )
+
+    data = coordinator._data_from_live_result(
+        None,
+        decoded_messages=(
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1045,
+                    "beep": 1,
+                    "beep_level": 2,
+                    "light": 1,
+                },
+                command_type=1045,
+            ),
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={"commandType": 1133, "light": 1, "light_level": 1},
+                command_type=1133,
+            ),
+        ),
+        firmware_version="4.0.2",
+        mqtt_online=True,
+        p2p_online=None,
+    )
+
+    assert data["e1_controls"] == {
+        "notification_sound": {
+            "enabled": True,
+            "level": 2,
+        },
+        "fill_light": {
+            "enabled": True,
+            "level": 1,
+        },
+    }
+
+
 def test_runtime_accessory_status_uses_latest_plate_message() -> None:
     _stub_homeassistant()
     runtime = _load_module(
@@ -757,6 +811,163 @@ def test_runtime_test_print_status_maps_completed_progress() -> None:
 
     assert status.active is False
     assert status.progress == 100
+
+
+def test_runtime_notification_sound_status_maps_toggle_and_level() -> None:
+    _stub_homeassistant()
+    runtime = _load_module(
+        "custom_components.eufymake_e1.runtime",
+        COMPONENT_DIR / "runtime.py",
+    )
+
+    status = runtime.find_notification_sound_status(
+        (
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1045,
+                    "beep": 0,
+                    "beep_level": 2,
+                    "light": 1,
+                },
+                command_type=1045,
+            ),
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1045,
+                    "beep": 1,
+                    "beep_level": 0,
+                    "light": 1,
+                },
+                command_type=1045,
+            ),
+        )
+    )
+
+    assert status.enabled is True
+    assert status.level == 0
+
+
+def test_runtime_fill_light_status_maps_toggle_and_level() -> None:
+    _stub_homeassistant()
+    runtime = _load_module(
+        "custom_components.eufymake_e1.runtime",
+        COMPONENT_DIR / "runtime.py",
+    )
+
+    status = runtime.find_fill_light_status(
+        (
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={"commandType": 1133, "light": 0, "light_level": 0},
+                command_type=1133,
+            ),
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={"commandType": 1133, "light": 1},
+                command_type=1133,
+            ),
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={"commandType": 1133, "light": 1, "light_level": 1},
+                command_type=1133,
+            ),
+        )
+    )
+
+    assert status.enabled is True
+    assert status.level == 1
+
+
+def test_coordinator_sends_e1_sound_and_light_command_payloads(monkeypatch) -> None:
+    _stub_homeassistant()
+    coordinator = _load_module(
+        "custom_components.eufymake_e1.coordinator",
+        COMPONENT_DIR / "coordinator.py",
+    )
+
+    sent: list[dict[str, object]] = []
+
+    class FakeCommandClient:
+        def __init__(self, **kwargs):
+            sent.append({"client": kwargs})
+
+        def send(self, payload, *, expected_command_type):
+            sent.append(
+                {
+                    "payload": payload,
+                    "expected_command_type": expected_command_type,
+                }
+            )
+
+    monkeypatch.setattr(coordinator, "EufyMakeMqttCommandClient", FakeCommandClient)
+
+    entry = types.SimpleNamespace(
+        data={
+            "mqtt_host": "make-mqtt-test",
+            "device_sn": "AKTEST",
+            "user_id": "123",
+            "email": "user@example.test",
+            "secret_key": "0" * 32,
+        }
+    )
+    instance = coordinator.EufyMakeE1Coordinator.__new__(
+        coordinator.EufyMakeE1Coordinator
+    )
+    instance.entry = entry
+    instance.data = {
+        "e1_controls": {
+            "notification_sound": {"enabled": True, "level": 1},
+            "fill_light": {"enabled": False, "level": 0},
+        }
+    }
+
+    instance._send_notification_sound_command(False, 2)
+    instance._send_fill_light_command(True, 1)
+
+    assert sent == [
+        {
+            "client": {
+                "host": "make-mqtt-test",
+                "station_sn": "AKTEST",
+                "user_id": "123",
+                "email": "user@example.test",
+                "secret_key": "0" * 32,
+            }
+        },
+        {
+            "payload": {
+                "commandType": 1045,
+                "beep": 0,
+                "beep_level": 2,
+                "light": 1,
+            },
+            "expected_command_type": 1045,
+        },
+        {
+            "client": {
+                "host": "make-mqtt-test",
+                "station_sn": "AKTEST",
+                "user_id": "123",
+                "email": "user@example.test",
+                "secret_key": "0" * 32,
+            }
+        },
+        {
+            "payload": {
+                "commandType": 1133,
+                "light": 1,
+                "light_level": 1,
+            },
+            "expected_command_type": 1133,
+        },
+    ]
 
 
 def test_coordinator_preserves_previous_accessory_when_poll_lacks_accessory_packets() -> None:

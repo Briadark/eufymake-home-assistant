@@ -33,10 +33,14 @@ from .runtime import (
     EufyMakeMqttCommandClient,
     EufyMakeMqttStatusClient,
     EufyMakeRuntimeError,
+    FILL_LIGHT_COMMAND,
     MqttProbePlan,
+    NOTIFICATION_SOUND_COMMAND,
     build_probe_plan,
     find_accessory_status,
+    find_fill_light_status,
     find_ink_injection_status,
+    find_notification_sound_status,
     find_printer_status,
     find_status_check_status,
     find_test_print_status,
@@ -53,6 +57,11 @@ PURIFIER_MODE_VALUES = {
     "High": 2,
     "Full power": 3,
     "Auto": 4,
+}
+E1_LEVEL_VALUES = {
+    "Low": 0,
+    "Medium": 1,
+    "High": 2,
 }
 
 
@@ -100,6 +109,7 @@ class EufyMakeE1Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             p2p_online=None,
         )
         _preserve_previous_accessory(data, self.data)
+        _preserve_previous_e1_controls(data, self.data)
         data["purifier"] = self._load_purifier_data()
         return data
 
@@ -226,6 +236,120 @@ class EufyMakeE1Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         data["purifier"] = purifier
         self.async_set_updated_data(data)
 
+    async def async_set_notification_sound_enabled(self, enabled: bool) -> None:
+        """Set the E1 notification sound toggle."""
+        current = _e1_control_settings(self.data)
+        await self.hass.async_add_executor_job(
+            self._send_notification_sound_command,
+            enabled,
+            _current_level(current.get("notification_sound"), default=2),
+        )
+        self._async_update_e1_control_state(
+            "notification_sound",
+            enabled=enabled,
+        )
+
+    async def async_set_notification_sound_level(self, level: str) -> None:
+        """Set the E1 notification sound level."""
+        if level not in E1_LEVEL_VALUES:
+            raise EufyMakeRuntimeError(f"Unsupported notification sound level: {level}")
+        await self.hass.async_add_executor_job(
+            self._send_notification_sound_command,
+            True,
+            E1_LEVEL_VALUES[level],
+        )
+        self._async_update_e1_control_state(
+            "notification_sound",
+            enabled=True,
+            level=E1_LEVEL_VALUES[level],
+        )
+
+    async def async_set_fill_light_enabled(self, enabled: bool) -> None:
+        """Set the E1 fill-in light toggle."""
+        current = _e1_control_settings(self.data)
+        await self.hass.async_add_executor_job(
+            self._send_fill_light_command,
+            enabled,
+            _current_level(current.get("fill_light"), default=2),
+        )
+        self._async_update_e1_control_state(
+            "fill_light",
+            enabled=enabled,
+        )
+
+    async def async_set_fill_light_level(self, level: str) -> None:
+        """Set the E1 fill-in light level."""
+        if level not in E1_LEVEL_VALUES:
+            raise EufyMakeRuntimeError(f"Unsupported fill-in light level: {level}")
+        await self.hass.async_add_executor_job(
+            self._send_fill_light_command,
+            True,
+            E1_LEVEL_VALUES[level],
+        )
+        self._async_update_e1_control_state(
+            "fill_light",
+            enabled=True,
+            level=E1_LEVEL_VALUES[level],
+        )
+
+    def _send_notification_sound_command(self, enabled: bool, level: int) -> None:
+        """Send an E1 notification sound MQTT command."""
+        self._send_e1_command(
+            {
+                "commandType": NOTIFICATION_SOUND_COMMAND,
+                "beep": int(enabled),
+                "beep_level": level,
+                "light": 1,
+            },
+            expected_command_type=NOTIFICATION_SOUND_COMMAND,
+        )
+
+    def _send_fill_light_command(self, enabled: bool, level: int) -> None:
+        """Send an E1 fill-in light MQTT command."""
+        self._send_e1_command(
+            {
+                "commandType": FILL_LIGHT_COMMAND,
+                "light": int(enabled),
+                "light_level": level,
+            },
+            expected_command_type=FILL_LIGHT_COMMAND,
+        )
+
+    def _send_e1_command(
+        self,
+        payload: dict[str, Any],
+        *,
+        expected_command_type: int,
+    ) -> None:
+        """Send an MQTT command to the E1."""
+        data = self.entry.data
+        EufyMakeMqttCommandClient(
+            host=data[CONF_MQTT_HOST],
+            station_sn=data[CONF_DEVICE_SN],
+            user_id=data[CONF_USER_ID],
+            email=data[CONF_EMAIL],
+            secret_key=data[CONF_SECRET_KEY],
+        ).send(payload, expected_command_type=expected_command_type)
+
+    def _async_update_e1_control_state(
+        self,
+        key: str,
+        *,
+        enabled: bool | None = None,
+        level: int | None = None,
+    ) -> None:
+        """Optimistically update E1 sound/light state after a command."""
+        data = deepcopy(self.data) if isinstance(self.data, dict) else {}
+        controls = _e1_control_settings(data)
+        state = dict(controls.get(key) or {})
+        if enabled is not None:
+            state["enabled"] = enabled
+        if level is not None:
+            state["level"] = level
+        controls[key] = state
+        data["e1_controls"] = controls
+        self.async_set_updated_data(data)
+
 
 def _data_from_live_result(
     ink_status: Any,
@@ -259,6 +383,8 @@ def _data_from_live_result(
     white_ink_recovery_status = find_white_ink_recovery_status(decoded_messages)
     status_check_status = find_status_check_status(decoded_messages)
     test_print_status = find_test_print_status(decoded_messages)
+    notification_sound_status = find_notification_sound_status(decoded_messages)
+    fill_light_status = find_fill_light_status(decoded_messages)
     online = ink_status is not None or printer_status.state is not None
     print_status = printer_status.name
     if ink_injection_status.active:
@@ -295,6 +421,16 @@ def _data_from_live_result(
             "active": test_print_status.active,
             "progress": test_print_status.progress,
         },
+        "e1_controls": {
+            "notification_sound": {
+                "enabled": notification_sound_status.enabled,
+                "level": notification_sound_status.level,
+            },
+            "fill_light": {
+                "enabled": fill_light_status.enabled,
+                "level": fill_light_status.level,
+            },
+        },
         "firmware_version": firmware_version,
         "current_accessory": accessory_status.name,
         "current_accessory_details": {
@@ -310,6 +446,33 @@ def _data_from_live_result(
         "waste_ink_details": waste_ink_details,
         "parts": [],
     }
+
+
+def _e1_control_settings(data: dict[str, Any] | None) -> dict[str, Any]:
+    """Return E1 sound/light control settings from coordinator data."""
+    if not isinstance(data, dict):
+        return {}
+    controls = data.get("e1_controls", {})
+    return controls if isinstance(controls, dict) else {}
+
+
+def _current_level(state: Any, *, default: int) -> int:
+    """Return the current low/medium/high level or a default."""
+    if isinstance(state, dict):
+        try:
+            level = int(state.get("level"))
+        except (TypeError, ValueError):
+            level = default
+        if level in E1_LEVEL_VALUES.values():
+            return level
+    return default
+
+
+def _current_enabled(state: Any, *, default: bool) -> bool:
+    """Return the current enabled state or a default."""
+    if isinstance(state, dict) and isinstance(state.get("enabled"), bool):
+        return bool(state["enabled"])
+    return default
 
 
 def _ink_channel_attributes(channel: Any) -> dict[str, Any]:
@@ -346,6 +509,28 @@ def _preserve_previous_accessory(
     data["current_accessory_details"] = (
         previous_details if isinstance(previous_details, dict) else {}
     )
+
+
+def _preserve_previous_e1_controls(
+    data: dict[str, Any],
+    previous_data: dict[str, Any] | None,
+) -> None:
+    """Keep last known sound/light state when a poll lacks those packets."""
+    if not previous_data:
+        return
+    previous_controls = _e1_control_settings(previous_data)
+    if not previous_controls:
+        return
+    controls = _e1_control_settings(data)
+    for key, previous_state in previous_controls.items():
+        if not isinstance(previous_state, dict):
+            continue
+        state = dict(controls.get(key) or {})
+        for field in ("enabled", "level"):
+            if state.get(field) is None and previous_state.get(field) is not None:
+                state[field] = previous_state[field]
+        controls[key] = state
+    data["e1_controls"] = controls
 
 
 def _load_cloud_purifier(

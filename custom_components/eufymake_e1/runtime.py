@@ -54,6 +54,8 @@ WHITE_INK_RECOVERY_COMMAND = 1188
 STATUS_CHECK_COMMAND = 1131
 TEST_PRINT_COMMAND = 1064
 TEST_PRINT_MODE = 4
+NOTIFICATION_SOUND_COMMAND = 1045
+FILL_LIGHT_COMMAND = 1133
 
 MQTT_CA_PEM = """-----BEGIN CERTIFICATE-----
 MIIDwTCCAqmgAwIBAgIJAKrbZvWARI3BMA0GCSqGSIb3DQEBCwUAMHUxCzAJBgNV
@@ -221,6 +223,22 @@ class TestPrintStatus:
 
     active: bool | None
     progress: int | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class NotificationSoundStatus:
+    """Parsed E1 notification sound settings."""
+
+    enabled: bool | None
+    level: int | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class FillLightStatus:
+    """Parsed E1 fill-in light settings."""
+
+    enabled: bool | None
+    level: int | None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -868,6 +886,48 @@ def find_test_print_status(
         active=active,
         progress=progress,
     )
+
+
+def find_notification_sound_status(
+    messages: tuple[DecodedMqttMessage, ...],
+) -> NotificationSoundStatus:
+    """Find the latest notification sound settings from decoded MQTT messages."""
+    enabled = None
+    level = None
+
+    for decoded_message in messages:
+        payload = decoded_message.payload
+        if not isinstance(payload, dict):
+            continue
+        if _optional_int(payload.get("commandType")) != NOTIFICATION_SOUND_COMMAND:
+            continue
+        enabled = _optional_bool(payload.get("beep"))
+        level = _optional_int(payload.get("beep_level"))
+
+    return NotificationSoundStatus(enabled=enabled, level=level)
+
+
+def find_fill_light_status(
+    messages: tuple[DecodedMqttMessage, ...],
+) -> FillLightStatus:
+    """Find the latest fill-in light settings from decoded MQTT messages."""
+    enabled = None
+    level = None
+
+    for decoded_message in messages:
+        payload = decoded_message.payload
+        if not isinstance(payload, dict):
+            continue
+        if _optional_int(payload.get("commandType")) != FILL_LIGHT_COMMAND:
+            continue
+        parsed_enabled = _optional_bool(payload.get("light"))
+        parsed_level = _optional_int(payload.get("light_level"))
+        if parsed_enabled is not None:
+            enabled = parsed_enabled
+        if parsed_level is not None:
+            level = parsed_level
+
+    return FillLightStatus(enabled=enabled, level=level)
 
 
 def _has_accessory_status(messages: tuple[DecodedMqttMessage, ...]) -> bool:

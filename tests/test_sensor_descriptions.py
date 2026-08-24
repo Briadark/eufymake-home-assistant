@@ -25,17 +25,17 @@ def test_ink_sensors_are_grouped_by_channel() -> None:
         "ink_c",
         "ink_c_expiration_date",
         "ink_c_days_until_expiration",
-        "ink_c_expired",
+        "ink_c_manufacture_date",
     ]
     assert keys[9:17] == [
-        "ink_c_manufacture_date",
         "ink_c_status",
         "ink_m",
         "ink_m_expiration_date",
         "ink_m_days_until_expiration",
-        "ink_m_expired",
         "ink_m_manufacture_date",
         "ink_m_status",
+        "ink_y",
+        "ink_y_expiration_date",
     ]
 
 
@@ -58,7 +58,31 @@ def test_ink_expiration_sensor_returns_date_value() -> None:
     assert descriptions["ink_c_expiration_date"].value_fn(data) == date(2026, 8, 28)
     assert descriptions["ink_c_manufacture_date"].value_fn(data) == date(2025, 8, 28)
     assert descriptions["ink_c_days_until_expiration"].value_fn(data) == 10
-    assert descriptions["ink_c_expired"].value_fn(data) is False
+
+
+def test_ink_status_combines_inserted_and_expired_state() -> None:
+    module = _load_sensor_module()
+    descriptions = {description.key: description for description in module.SENSORS}
+    status = descriptions["ink_c_status"]
+    waste_status = descriptions["waste_ink_status"]
+
+    assert (
+        status.value_fn({"ink_details": {"C": {"status": 1, "expired": False}}})
+        == "Inserted"
+    )
+    assert (
+        status.value_fn({"ink_details": {"C": {"status": 1, "expired": True}}})
+        == "Expired"
+    )
+    assert (
+        status.value_fn({"ink_details": {"C": {"status": 0, "expired": True}}})
+        == "Not inserted"
+    )
+    assert status.value_fn({"ink_details": {"C": {"status": 9}}}) == "Unknown"
+    assert (
+        waste_status.value_fn({"waste_ink_details": {"status": 1, "expired": True}})
+        == "Expired"
+    )
 
 
 def test_print_progress_returns_active_operation_progress() -> None:
