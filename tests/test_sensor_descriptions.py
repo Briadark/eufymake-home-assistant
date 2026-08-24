@@ -108,6 +108,15 @@ def test_print_progress_returns_active_operation_progress() -> None:
         )
         == 66
     )
+    assert (
+        progress.value_fn(
+            {
+                "test_print": {"active": False, "progress": 100},
+                "print_job": {"active": True, "progress": 85},
+            }
+        )
+        == 85
+    )
     assert progress.value_fn({"test_print": {"active": False, "progress": 100}}) is None
 
 

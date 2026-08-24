@@ -323,6 +323,67 @@ def test_coordinator_live_data_exposes_test_print_progress() -> None:
     }
 
 
+def test_coordinator_live_data_exposes_regular_print_progress() -> None:
+    _stub_homeassistant()
+    package = types.ModuleType("custom_components.eufymake_e1")
+    package.__path__ = [str(COMPONENT_DIR)]
+    sys.modules["custom_components.eufymake_e1"] = package
+    sys.modules["custom_components.eufymake_e1.const"] = _load_real_const()
+
+    runtime = _load_module(
+        "custom_components.eufymake_e1.runtime",
+        COMPONENT_DIR / "runtime.py",
+    )
+    coordinator = _load_module(
+        "custom_components.eufymake_e1.coordinator",
+        COMPONENT_DIR / "coordinator.py",
+    )
+
+    data = coordinator._data_from_live_result(
+        None,
+        decoded_messages=(
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1000,
+                    "status": {
+                        "state": 2,
+                        "step": 4,
+                        "ext": {"maintainable": 1},
+                    },
+                },
+                command_type=1000,
+            ),
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1001,
+                    "time": 65,
+                    "progress": 8500,
+                    "totalTime": 293,
+                },
+                command_type=1001,
+            ),
+        ),
+        firmware_version="4.0.2",
+        mqtt_online=True,
+        p2p_online=None,
+    )
+
+    assert data["availability"] == "online"
+    assert data["print_status"] == "Printing"
+    assert data["print_status_details"]["state"] == 2
+    assert data["print_status_details"]["step"] == 4
+    assert data["print_job"] == {
+        "active": True,
+        "progress": 85,
+        "remaining_time": 65,
+        "elapsed_time": 293,
+    }
+
+
 def test_coordinator_live_data_exposes_e1_sound_and_light_settings() -> None:
     _stub_homeassistant()
     package = types.ModuleType("custom_components.eufymake_e1")
@@ -571,6 +632,36 @@ def test_runtime_printer_status_maps_maintenance() -> None:
     assert status.error_codes == ()
 
 
+def test_runtime_printer_status_maps_printing() -> None:
+    _stub_homeassistant()
+    runtime = _load_module(
+        "custom_components.eufymake_e1.runtime",
+        COMPONENT_DIR / "runtime.py",
+    )
+
+    status = runtime.find_printer_status(
+        (
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1000,
+                    "status": {
+                        "state": 2,
+                        "step": 4,
+                        "ext": {"maintainable": 1},
+                    },
+                },
+                command_type=1000,
+            ),
+        )
+    )
+
+    assert status.name == "Printing"
+    assert status.state == 2
+    assert status.step == 4
+
+
 def test_runtime_printer_status_maps_unavailable_with_error_codes() -> None:
     _stub_homeassistant()
     runtime = _load_module(
@@ -811,6 +902,64 @@ def test_runtime_test_print_status_maps_completed_progress() -> None:
 
     assert status.active is False
     assert status.progress == 100
+
+
+def test_runtime_print_job_status_maps_active_progress() -> None:
+    _stub_homeassistant()
+    runtime = _load_module(
+        "custom_components.eufymake_e1.runtime",
+        COMPONENT_DIR / "runtime.py",
+    )
+
+    status = runtime.find_print_job_status(
+        (
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1001,
+                    "time": 65,
+                    "progress": 8500,
+                    "totalTime": 293,
+                },
+                command_type=1001,
+            ),
+        )
+    )
+
+    assert status.active is True
+    assert status.progress == 85
+    assert status.remaining_time == 65
+    assert status.elapsed_time == 293
+
+
+def test_runtime_print_job_status_maps_completed_progress() -> None:
+    _stub_homeassistant()
+    runtime = _load_module(
+        "custom_components.eufymake_e1.runtime",
+        COMPONENT_DIR / "runtime.py",
+    )
+
+    status = runtime.find_print_job_status(
+        (
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1001,
+                    "time": 17,
+                    "progress": 10000,
+                    "totalTime": 329,
+                },
+                command_type=1001,
+            ),
+        )
+    )
+
+    assert status.active is False
+    assert status.progress == 100
+    assert status.remaining_time == 17
+    assert status.elapsed_time == 329
 
 
 def test_runtime_notification_sound_status_maps_toggle_and_level() -> None:

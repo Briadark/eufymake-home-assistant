@@ -20,6 +20,10 @@ from pyeufymake.profile import EufyMakeProfileCacheError
 from pyeufymake.redaction import redact
 
 BLOCKED_QUERY_COMMANDS = {
+    1045: (
+        "blocked because bare notification sound requests have been observed "
+        "to make the E1 play its notification sound"
+    ),
     1154: (
         "blocked because it has been observed to trigger an E1 offline/change "
         "notice during purifier discovery"
@@ -96,7 +100,10 @@ def main() -> int:
         "--listen-after-ink",
         type=float,
         default=0,
-        help="Keep listening this many seconds after the first ink status.",
+        help=(
+            "Keep listening this many seconds after the first ink status. "
+            "Use this with --listen-only for continuous app captures."
+        ),
     )
     parser.add_argument(
         "--query",
@@ -137,6 +144,19 @@ def main() -> int:
         "--capture-device-topics",
         action="store_true",
         help="Also subscribe to app-to-printer command/query topics.",
+    )
+    parser.add_argument(
+        "--capture-wildcard-topics",
+        action="store_true",
+        help=(
+            "Also subscribe to broad phone/device wildcard topics for this "
+            "station and user."
+        ),
+    )
+    parser.add_argument(
+        "--log-raw-messages",
+        action="store_true",
+        help="Print raw topic, byte length, and decode status for every MQTT message.",
     )
     parser.add_argument(
         "--allow-risky-query",
@@ -191,6 +211,10 @@ def main() -> int:
         print("  publish: disabled")
     if args.capture_device_topics:
         print("  capture_device_topics: enabled")
+    if args.capture_wildcard_topics:
+        print("  capture_wildcard_topics: enabled")
+    if args.log_raw_messages:
+        print("  log_raw_messages: enabled")
     print(f"  ca_file: {args.ca_file if args.ca_file else '<system default>'}")
 
     try:
@@ -203,8 +227,10 @@ def main() -> int:
             extra_subscriptions=_extra_subscriptions(
                 plan,
                 capture_device_topics=args.capture_device_topics,
+                capture_wildcard_topics=args.capture_wildcard_topics,
             ),
             on_decoded_message=_print_decoded_message,
+            on_raw_message=_print_raw_message if args.log_raw_messages else None,
         )
     except KeyboardInterrupt:
         print("Probe stopped by user.")
@@ -276,13 +302,20 @@ def _extra_subscriptions(
     plan: Any,
     *,
     capture_device_topics: bool,
+    capture_wildcard_topics: bool,
 ) -> tuple[str, ...]:
-    if not capture_device_topics:
-        return ()
-    return (
-        plan.topics.command,
-        plan.topics.query,
-    )
+    topics: list[str] = []
+    if capture_device_topics:
+        topics.extend((plan.topics.command, plan.topics.query))
+    if capture_wildcard_topics:
+        topics.extend(
+            (
+                f"/device/maker/{plan.device.serial_number}/#",
+                f"/phone/maker/{plan.device.serial_number}/#",
+                f"/phone/user/{plan.credentials.username.removeprefix('eufy_')}/#",
+            )
+        )
+    return tuple(dict.fromkeys(topics))
 
 
 def _check_query_command(command_type: int, *, allow_risky: bool) -> None:
@@ -304,6 +337,16 @@ def _print_decoded_message(message: Any) -> None:
         flush=True,
     )
     print(redact(message.payload), flush=True)
+
+
+def _print_raw_message(topic: str, payload: bytes, decoded: bool) -> None:
+    print(
+        "Raw MQTT message "
+        f"topic={redact_topic(topic)} "
+        f"bytes={len(payload)} "
+        f"decoded={decoded}",
+        flush=True,
+    )
 
 
 def _print_ink_status(ink_status: object) -> None:

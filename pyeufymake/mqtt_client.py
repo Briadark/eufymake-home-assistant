@@ -70,6 +70,7 @@ class EufyMakeMqttStatusClient:
         publish_topic: str = "query",
         extra_subscriptions: tuple[str, ...] = (),
         on_decoded_message: Callable[[DecodedMqttMessage], None] | None = None,
+        on_raw_message: Callable[[str, bytes, bool], None] | None = None,
     ) -> MqttStatusResult:
         """Connect, request status, and wait for an ink status message."""
         try:
@@ -126,6 +127,8 @@ class EufyMakeMqttStatusClient:
         def on_message(client: Any, userdata: Any, message: Any) -> None:
             state["messages"] += 1
             decoded = self._try_decode(message.payload)
+            if on_raw_message is not None:
+                on_raw_message(message.topic, message.payload, decoded is not None)
             if decoded is None:
                 state["undecoded"] += 1
                 return

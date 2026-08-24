@@ -42,6 +42,7 @@ from .runtime import (
     find_fill_light_status,
     find_ink_injection_status,
     find_notification_sound_status,
+    find_print_job_status,
     find_printer_status,
     find_status_check_status,
     find_test_print_status,
@@ -388,6 +389,7 @@ def _data_from_live_result(
     white_ink_recovery_status = find_white_ink_recovery_status(decoded_messages)
     status_check_status = find_status_check_status(decoded_messages)
     test_print_status = find_test_print_status(decoded_messages)
+    print_job_status = find_print_job_status(decoded_messages)
     notification_sound_status = find_notification_sound_status(decoded_messages)
     fill_light_status = find_fill_light_status(decoded_messages)
     online = ink_status is not None or printer_status.state is not None
@@ -400,6 +402,8 @@ def _data_from_live_result(
         print_status = "Checking status"
     elif test_print_status.active:
         print_status = "Test printing"
+    elif print_job_status.active:
+        print_status = "Printing"
 
     return {
         "availability": "online" if online else "unknown",
@@ -425,6 +429,12 @@ def _data_from_live_result(
         "test_print": {
             "active": test_print_status.active,
             "progress": test_print_status.progress,
+        },
+        "print_job": {
+            "active": print_job_status.active,
+            "progress": print_job_status.progress,
+            "remaining_time": print_job_status.remaining_time,
+            "elapsed_time": print_job_status.elapsed_time,
         },
         "e1_controls": {
             "notification_sound": {

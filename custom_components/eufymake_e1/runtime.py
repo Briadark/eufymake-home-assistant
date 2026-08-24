@@ -43,6 +43,7 @@ ATTACHMENT_TYPE_NAMES = {
 }
 PRINTER_STATE_NAMES = {
     0: "Idle",
+    2: "Printing",
     4: "Printing",
     5: "Performing maintenance",
     8: "Checking status",
@@ -54,6 +55,7 @@ WHITE_INK_RECOVERY_COMMAND = 1188
 STATUS_CHECK_COMMAND = 1131
 TEST_PRINT_COMMAND = 1064
 TEST_PRINT_MODE = 4
+PRINT_JOB_STATUS_COMMAND = 1001
 NOTIFICATION_SOUND_COMMAND = 1045
 FILL_LIGHT_COMMAND = 1133
 E1_READ_ONLY_SETTINGS_QUERY_COMMANDS: tuple[dict[str, int], ...] = ()
@@ -224,6 +226,16 @@ class TestPrintStatus:
 
     active: bool | None
     progress: int | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class PrintJobStatus:
+    """Parsed E1 normal print job status."""
+
+    active: bool | None
+    progress: int | None
+    remaining_time: int | None
+    elapsed_time: int | None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -960,6 +972,36 @@ def find_test_print_status(
     )
 
 
+def find_print_job_status(
+    messages: tuple[DecodedMqttMessage, ...],
+) -> PrintJobStatus:
+    """Find the latest normal print job progress from decoded MQTT messages."""
+    active = None
+    progress = None
+    remaining_time = None
+    elapsed_time = None
+
+    for decoded_message in messages:
+        payload = decoded_message.payload
+        if not isinstance(payload, dict):
+            continue
+        if _optional_int(payload.get("commandType")) != PRINT_JOB_STATUS_COMMAND:
+            continue
+
+        progress = _hundredths_progress(payload.get("progress"))
+        remaining_time = _optional_int(payload.get("time"))
+        elapsed_time = _optional_int(payload.get("totalTime"))
+        if progress is not None:
+            active = progress < 100
+
+    return PrintJobStatus(
+        active=active,
+        progress=progress,
+        remaining_time=remaining_time,
+        elapsed_time=elapsed_time,
+    )
+
+
 def find_notification_sound_status(
     messages: tuple[DecodedMqttMessage, ...],
 ) -> NotificationSoundStatus:
@@ -1133,6 +1175,13 @@ def _hundredths_percent(value: Any) -> float | None:
     if parsed is None:
         return None
     return parsed / 100
+
+
+def _hundredths_progress(value: Any) -> int | None:
+    parsed = _optional_int(value)
+    if parsed is None:
+        return None
+    return max(0, min(100, round(parsed / 100)))
 
 
 def _optional_int(value: Any) -> int | None:

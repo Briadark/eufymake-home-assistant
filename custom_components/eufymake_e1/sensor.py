@@ -91,6 +91,7 @@ def _print_status_attributes(data: dict[str, Any]) -> dict[str, Any]:
     recovery = _white_ink_recovery(data)
     status_check = _status_check(data)
     test_print = _test_print(data)
+    print_job = _print_job(data)
     return {
         **attributes,
         "ink_injection_active": injection.get("active"),
@@ -101,6 +102,10 @@ def _print_status_attributes(data: dict[str, Any]) -> dict[str, Any]:
         "status_check_progress": status_check.get("progress"),
         "test_print_active": test_print.get("active"),
         "test_print_progress": test_print.get("progress"),
+        "print_job_active": print_job.get("active"),
+        "print_job_progress": print_job.get("progress"),
+        "print_job_remaining_time": print_job.get("remaining_time"),
+        "print_job_elapsed_time": print_job.get("elapsed_time"),
     }
 
 
@@ -110,6 +115,7 @@ def _print_progress(data: dict[str, Any]) -> Any:
         _white_ink_recovery(data),
         _status_check(data),
         _test_print(data),
+        _print_job(data),
     ):
         if action.get("active"):
             return action.get("progress")
@@ -134,6 +140,11 @@ def _status_check(data: dict[str, Any]) -> dict[str, Any]:
 def _test_print(data: dict[str, Any]) -> dict[str, Any]:
     test_print = data.get("test_print", {})
     return test_print if isinstance(test_print, dict) else {}
+
+
+def _print_job(data: dict[str, Any]) -> dict[str, Any]:
+    print_job = data.get("print_job", {})
+    return print_job if isinstance(print_job, dict) else {}
 
 
 def _purifier(data: dict[str, Any]) -> dict[str, Any]:
