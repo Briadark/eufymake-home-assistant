@@ -28,19 +28,32 @@ ACCESSORY_QUERY_COMMANDS = (
     {"commandType": ACCESSORY_INFO_COMMAND},
 )
 PLATE_TYPE_NAMES = {
-    0: "Mini Flatbed",
-    1: "None",
-    2: "Standard Flatbed",
+    0: "None",
+    1: "Standard Flatbed",
+    2: "Mini Flatbed",
     3: "Rotary Printing Attachment",
     4: "Roll-to-Film Attachment",
 }
 ATTACHMENT_TYPE_NAMES = {
-    0: "Mini Flatbed",
-    1: "Standard Flatbed",
-    2: "None",
+    0: "None",
+    1: "Mini Flatbed",
+    2: "Standard Flatbed",
     3: "Roll-to-Film Attachment",
     4: "Rotary Printing Attachment",
 }
+PRINTER_STATE_NAMES = {
+    0: "Idle",
+    4: "Printing",
+    5: "Performing maintenance",
+    8: "Checking status",
+    10: "Unavailable",
+    13: "Maintenance",
+}
+INK_INJECTION_COMMAND = 1136
+WHITE_INK_RECOVERY_COMMAND = 1188
+STATUS_CHECK_COMMAND = 1131
+TEST_PRINT_COMMAND = 1064
+TEST_PRINT_MODE = 4
 
 MQTT_CA_PEM = """-----BEGIN CERTIFICATE-----
 MIIDwTCCAqmgAwIBAgIJAKrbZvWARI3BMA0GCSqGSIb3DQEBCwUAMHUxCzAJBgNV
@@ -165,6 +178,49 @@ class AccessoryStatus:
     attachment_type: int | None
     plate_type: int | None
     version: str | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class PrinterStatus:
+    """Parsed E1 printer status."""
+
+    name: str | None
+    state: int | None
+    step: int | None
+    maintainable: bool | None
+    error_codes: tuple[str, ...]
+
+
+@dataclass(frozen=True, kw_only=True)
+class InkInjectionStatus:
+    """Parsed E1 ink injection status."""
+
+    active: bool | None
+    progress: int | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class WhiteInkRecoveryStatus:
+    """Parsed E1 white ink recovery status."""
+
+    active: bool | None
+    progress: int | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class StatusCheckStatus:
+    """Parsed E1 pre-print status check status."""
+
+    active: bool | None
+    progress: int | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class TestPrintStatus:
+    """Parsed E1 test print status."""
+
+    active: bool | None
+    progress: int | None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -693,6 +749,127 @@ def find_accessory_status(messages: tuple[DecodedMqttMessage, ...]) -> Accessory
     )
 
 
+def find_printer_status(messages: tuple[DecodedMqttMessage, ...]) -> PrinterStatus:
+    """Find the latest printer state from decoded MQTT messages."""
+    state = None
+    step = None
+    maintainable = None
+    error_codes: tuple[str, ...] = ()
+
+    for decoded_message in messages:
+        payload = decoded_message.payload
+        if not isinstance(payload, dict):
+            continue
+        if _optional_int(payload.get("commandType")) != 1000:
+            continue
+        status = payload.get("status")
+        if not isinstance(status, dict):
+            continue
+
+        state = _optional_int(status.get("state"))
+        step = _optional_int(status.get("step"))
+        ext = status.get("ext")
+        if isinstance(ext, dict):
+            maintainable = _optional_bool(ext.get("maintainable"))
+            error_codes = tuple(
+                str(code) for code in _list(ext.get("errorCodes")) if code is not None
+            )
+        else:
+            maintainable = None
+            error_codes = ()
+
+    return PrinterStatus(
+        name=_printer_state_name(state),
+        state=state,
+        step=step,
+        maintainable=maintainable,
+        error_codes=error_codes,
+    )
+
+
+def find_ink_injection_status(
+    messages: tuple[DecodedMqttMessage, ...],
+) -> InkInjectionStatus:
+    """Find the latest ink injection state from decoded MQTT messages."""
+    active = None
+    progress = None
+
+    for decoded_message in messages:
+        payload = decoded_message.payload
+        if not isinstance(payload, dict):
+            continue
+        if _optional_int(payload.get("commandType")) != INK_INJECTION_COMMAND:
+            continue
+        active = _optional_bool(payload.get("value"))
+        progress = _optional_int(payload.get("progress"))
+
+    return InkInjectionStatus(active=active, progress=progress)
+
+
+def find_white_ink_recovery_status(
+    messages: tuple[DecodedMqttMessage, ...],
+) -> WhiteInkRecoveryStatus:
+    """Find the latest white ink recovery state from decoded MQTT messages."""
+    active = None
+    progress = None
+
+    for decoded_message in messages:
+        payload = decoded_message.payload
+        if not isinstance(payload, dict):
+            continue
+        if _optional_int(payload.get("commandType")) != WHITE_INK_RECOVERY_COMMAND:
+            continue
+        active = _optional_bool(payload.get("value"))
+        progress = _optional_int(payload.get("progress"))
+
+    return WhiteInkRecoveryStatus(active=active, progress=progress)
+
+
+def find_status_check_status(
+    messages: tuple[DecodedMqttMessage, ...],
+) -> StatusCheckStatus:
+    """Find the latest pre-print status check state from decoded MQTT messages."""
+    active = None
+    progress = None
+
+    for decoded_message in messages:
+        payload = decoded_message.payload
+        if not isinstance(payload, dict):
+            continue
+        if _optional_int(payload.get("commandType")) != STATUS_CHECK_COMMAND:
+            continue
+        active = _optional_bool(payload.get("value"))
+        progress = _optional_int(payload.get("progress"))
+
+    return StatusCheckStatus(active=active, progress=progress)
+
+
+def find_test_print_status(
+    messages: tuple[DecodedMqttMessage, ...],
+) -> TestPrintStatus:
+    """Find the latest test print state from decoded MQTT messages."""
+    active = None
+    progress = None
+
+    for decoded_message in messages:
+        payload = decoded_message.payload
+        if not isinstance(payload, dict):
+            continue
+        if _optional_int(payload.get("commandType")) != TEST_PRINT_COMMAND:
+            continue
+        if _optional_int(payload.get("mode")) != TEST_PRINT_MODE:
+            continue
+
+        progress = _optional_int(payload.get("progress"))
+        if progress is not None:
+            active = progress < 100
+
+    return TestPrintStatus(
+        active=active,
+        progress=progress,
+    )
+
+
 def _has_accessory_status(messages: tuple[DecodedMqttMessage, ...]) -> bool:
     status = find_accessory_status(messages)
     return status.plate_type is not None and status.attachment_type is not None
@@ -848,3 +1025,9 @@ def _accessory_name(plate_type: int | None, attachment_type: int | None) -> str 
     if plate_type is not None or attachment_type is not None:
         return "Unknown accessory"
     return None
+
+
+def _printer_state_name(state: int | None) -> str | None:
+    if state is None:
+        return None
+    return PRINTER_STATE_NAMES.get(state, f"Unknown state {state}")

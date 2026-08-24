@@ -114,6 +114,16 @@ def main() -> int:
         help="MQTT topic family to publish the payload to.",
     )
     parser.add_argument(
+        "--listen-only",
+        action="store_true",
+        help="Subscribe and decode messages without publishing a query.",
+    )
+    parser.add_argument(
+        "--capture-device-topics",
+        action="store_true",
+        help="Also subscribe to app-to-printer command/query topics.",
+    )
+    parser.add_argument(
         "--allow-risky-query",
         action="store_true",
         help="Allow query commands blocked by prior unsafe observations.",
@@ -157,6 +167,10 @@ def main() -> int:
     print(f"  publish_topic: {args.publish_topic}")
     if query_payloads is not None:
         print(f"  query_payloads: {query_payloads}")
+    if args.listen_only:
+        print("  publish: disabled")
+    if args.capture_device_topics:
+        print("  capture_device_topics: enabled")
     print(f"  ca_file: {args.ca_file if args.ca_file else '<system default>'}")
 
     try:
@@ -164,8 +178,12 @@ def main() -> int:
             timeout=args.timeout,
             publish_variant=args.publish_variant,
             listen_after_ink=args.listen_after_ink,
-            query_payloads=query_payloads,
+            query_payloads=() if args.listen_only else query_payloads,
             publish_topic=args.publish_topic,
+            extra_subscriptions=_extra_subscriptions(
+                plan,
+                capture_device_topics=args.capture_device_topics,
+            ),
             on_decoded_message=_print_decoded_message,
         )
     except KeyboardInterrupt:
@@ -209,6 +227,19 @@ def _query_payloads(
             _check_query_command(command_type, allow_risky=allow_risky)
         payloads.append(payload)
     return tuple(payloads) if payloads else None
+
+
+def _extra_subscriptions(
+    plan: Any,
+    *,
+    capture_device_topics: bool,
+) -> tuple[str, ...]:
+    if not capture_device_topics:
+        return ()
+    return (
+        plan.topics.command,
+        plan.topics.query,
+    )
 
 
 def _check_query_command(command_type: int, *, allow_risky: bool) -> None:

@@ -16,19 +16,20 @@ def test_ink_sensors_are_grouped_by_channel() -> None:
 
     keys = [description.key for description in module.SENSORS]
 
-    assert keys[:10] == [
+    assert keys[:9] == [
         "availability",
         "print_status",
         "firmware_version",
         "current_accessory",
+        "print_progress",
         "ink_c",
         "ink_c_expiration_date",
         "ink_c_days_until_expiration",
         "ink_c_expired",
+    ]
+    assert keys[9:17] == [
         "ink_c_manufacture_date",
         "ink_c_status",
-    ]
-    assert keys[10:16] == [
         "ink_m",
         "ink_m_expiration_date",
         "ink_m_days_until_expiration",
@@ -58,6 +59,32 @@ def test_ink_expiration_sensor_returns_date_value() -> None:
     assert descriptions["ink_c_manufacture_date"].value_fn(data) == date(2025, 8, 28)
     assert descriptions["ink_c_days_until_expiration"].value_fn(data) == 10
     assert descriptions["ink_c_expired"].value_fn(data) is False
+
+
+def test_print_progress_returns_active_operation_progress() -> None:
+    module = _load_sensor_module()
+    descriptions = {description.key: description for description in module.SENSORS}
+    progress = descriptions["print_progress"]
+
+    assert (
+        progress.value_fn(
+            {
+                "ink_injection": {"active": True, "progress": 49},
+                "white_ink_recovery": {"active": False, "progress": 100},
+            }
+        )
+        == 49
+    )
+    assert (
+        progress.value_fn(
+            {
+                "ink_injection": {"active": False, "progress": 100},
+                "test_print": {"active": True, "progress": 66},
+            }
+        )
+        == 66
+    )
+    assert progress.value_fn({"test_print": {"active": False, "progress": 100}}) is None
 
 
 def _load_sensor_module():
@@ -93,6 +120,7 @@ def _stub_homeassistant() -> None:
     config_entries = types.ModuleType("homeassistant.config_entries")
     const = types.ModuleType("homeassistant.const")
     core = types.ModuleType("homeassistant.core")
+    exceptions = types.ModuleType("homeassistant.exceptions")
     helpers = types.ModuleType("homeassistant.helpers")
     entity_platform = types.ModuleType("homeassistant.helpers.entity_platform")
     update_coordinator = types.ModuleType(
@@ -119,6 +147,16 @@ def _stub_homeassistant() -> None:
     class HomeAssistant:
         pass
 
+    class ConfigEntryAuthFailed(Exception):
+        pass
+
+    class DataUpdateCoordinator:
+        def __class_getitem__(cls, item):
+            return cls
+
+    class UpdateFailed(Exception):
+        pass
+
     class CoordinatorEntity:
         def __class_getitem__(cls, item):
             return cls
@@ -132,8 +170,11 @@ def _stub_homeassistant() -> None:
     config_entries.ConfigEntry = ConfigEntry
     const.PERCENTAGE = "%"
     core.HomeAssistant = HomeAssistant
+    exceptions.ConfigEntryAuthFailed = ConfigEntryAuthFailed
     entity_platform.AddEntitiesCallback = object
+    update_coordinator.DataUpdateCoordinator = DataUpdateCoordinator
     update_coordinator.CoordinatorEntity = CoordinatorEntity
+    update_coordinator.UpdateFailed = UpdateFailed
     components.sensor = sensor
     helpers.entity_platform = entity_platform
     helpers.update_coordinator = update_coordinator
@@ -141,6 +182,7 @@ def _stub_homeassistant() -> None:
     homeassistant.config_entries = config_entries
     homeassistant.const = const
     homeassistant.core = core
+    homeassistant.exceptions = exceptions
     homeassistant.helpers = helpers
 
     sys.modules["homeassistant"] = homeassistant
@@ -149,6 +191,7 @@ def _stub_homeassistant() -> None:
     sys.modules["homeassistant.config_entries"] = config_entries
     sys.modules["homeassistant.const"] = const
     sys.modules["homeassistant.core"] = core
+    sys.modules["homeassistant.exceptions"] = exceptions
     sys.modules["homeassistant.helpers"] = helpers
     sys.modules["homeassistant.helpers.entity_platform"] = entity_platform
     sys.modules["homeassistant.helpers.update_coordinator"] = update_coordinator

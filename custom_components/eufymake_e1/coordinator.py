@@ -36,6 +36,11 @@ from .runtime import (
     MqttProbePlan,
     build_probe_plan,
     find_accessory_status,
+    find_ink_injection_status,
+    find_printer_status,
+    find_status_check_status,
+    find_test_print_status,
+    find_white_ink_recovery_status,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -249,10 +254,47 @@ def _data_from_live_result(
             waste_ink_details = _ink_channel_attributes(ink_status.waste_tank)
 
     accessory_status = find_accessory_status(decoded_messages)
+    printer_status = find_printer_status(decoded_messages)
+    ink_injection_status = find_ink_injection_status(decoded_messages)
+    white_ink_recovery_status = find_white_ink_recovery_status(decoded_messages)
+    status_check_status = find_status_check_status(decoded_messages)
+    test_print_status = find_test_print_status(decoded_messages)
+    online = ink_status is not None or printer_status.state is not None
+    print_status = printer_status.name
+    if ink_injection_status.active:
+        print_status = "Injecting ink"
+    elif white_ink_recovery_status.active:
+        print_status = "White ink recovery"
+    elif status_check_status.active:
+        print_status = "Checking status"
+    elif test_print_status.active:
+        print_status = "Test printing"
 
     return {
-        "availability": "online" if ink_status is not None else "unknown",
-        "print_status": None,
+        "availability": "online" if online else "unknown",
+        "print_status": print_status,
+        "print_status_details": {
+            "state": printer_status.state,
+            "step": printer_status.step,
+            "maintainable": printer_status.maintainable,
+            "error_codes": printer_status.error_codes,
+        },
+        "ink_injection": {
+            "active": ink_injection_status.active,
+            "progress": ink_injection_status.progress,
+        },
+        "white_ink_recovery": {
+            "active": white_ink_recovery_status.active,
+            "progress": white_ink_recovery_status.progress,
+        },
+        "status_check": {
+            "active": status_check_status.active,
+            "progress": status_check_status.progress,
+        },
+        "test_print": {
+            "active": test_print_status.active,
+            "progress": test_print_status.progress,
+        },
         "firmware_version": firmware_version,
         "current_accessory": accessory_status.name,
         "current_accessory_details": {

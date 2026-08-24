@@ -50,6 +50,14 @@ def _ink_detail_value_fn(channel: str, key: str) -> Callable[[dict[str, Any]], A
     return lambda data: _ink_attributes(data, channel).get(key)
 
 
+def _ink_status_value_fn(channel: str) -> Callable[[dict[str, Any]], str | None]:
+    return lambda data: _map_ink_status(_ink_attributes(data, channel).get("status"))
+
+
+def _ink_status_attributes_fn(channel: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    return lambda data: {"raw_status": _ink_attributes(data, channel).get("status")}
+
+
 def _ink_date_fn(channel: str, key: str) -> Callable[[dict[str, Any]], date | None]:
     return lambda data: _date_value(_ink_attributes(data, channel), key)
 
@@ -70,6 +78,59 @@ def _waste_ink_attributes(data: dict[str, Any]) -> dict[str, Any]:
 def _accessory_attributes(data: dict[str, Any]) -> dict[str, Any]:
     attributes = data.get("current_accessory_details", {})
     return attributes if isinstance(attributes, dict) else {}
+
+
+def _print_status_attributes(data: dict[str, Any]) -> dict[str, Any]:
+    attributes = data.get("print_status_details", {})
+    if not isinstance(attributes, dict):
+        attributes = {}
+    injection = _ink_injection(data)
+    recovery = _white_ink_recovery(data)
+    status_check = _status_check(data)
+    test_print = _test_print(data)
+    return {
+        **attributes,
+        "ink_injection_active": injection.get("active"),
+        "ink_injection_progress": injection.get("progress"),
+        "white_ink_recovery_active": recovery.get("active"),
+        "white_ink_recovery_progress": recovery.get("progress"),
+        "status_check_active": status_check.get("active"),
+        "status_check_progress": status_check.get("progress"),
+        "test_print_active": test_print.get("active"),
+        "test_print_progress": test_print.get("progress"),
+    }
+
+
+def _print_progress(data: dict[str, Any]) -> Any:
+    for action in (
+        _ink_injection(data),
+        _white_ink_recovery(data),
+        _status_check(data),
+        _test_print(data),
+    ):
+        if action.get("active"):
+            return action.get("progress")
+    return None
+
+
+def _ink_injection(data: dict[str, Any]) -> dict[str, Any]:
+    injection = data.get("ink_injection", {})
+    return injection if isinstance(injection, dict) else {}
+
+
+def _white_ink_recovery(data: dict[str, Any]) -> dict[str, Any]:
+    recovery = data.get("white_ink_recovery", {})
+    return recovery if isinstance(recovery, dict) else {}
+
+
+def _status_check(data: dict[str, Any]) -> dict[str, Any]:
+    status_check = data.get("status_check", {})
+    return status_check if isinstance(status_check, dict) else {}
+
+
+def _test_print(data: dict[str, Any]) -> dict[str, Any]:
+    test_print = data.get("test_print", {})
+    return test_print if isinstance(test_print, dict) else {}
 
 
 def _purifier(data: dict[str, Any]) -> dict[str, Any]:
@@ -134,6 +195,7 @@ BASE_SENSORS: tuple[EufyMakeSensorDescription, ...] = (
         name="Print status",
         translation_key="print_status",
         value_fn=lambda data: data.get("print_status"),
+        attributes_fn=_print_status_attributes,
     ),
     EufyMakeSensorDescription(
         key="firmware_version",
@@ -147,6 +209,12 @@ BASE_SENSORS: tuple[EufyMakeSensorDescription, ...] = (
         translation_key="current_accessory",
         value_fn=lambda data: data.get("current_accessory"),
         attributes_fn=_accessory_attributes,
+    ),
+    EufyMakeSensorDescription(
+        key="print_progress",
+        name="Print progress",
+        native_unit_of_measurement=PERCENTAGE,
+        value_fn=_print_progress,
     ),
 )
 
@@ -189,7 +257,8 @@ INK_SENSORS: tuple[EufyMakeSensorDescription, ...] = tuple(
         EufyMakeSensorDescription(
             key=f"ink_{channel.lower()}_status",
             name=f"{name} ink status",
-            value_fn=_ink_detail_value_fn(channel, "status"),
+            value_fn=_ink_status_value_fn(channel),
+            attributes_fn=_ink_status_attributes_fn(channel),
         ),
     )
 )
@@ -229,7 +298,12 @@ WASTE_SENSORS: tuple[EufyMakeSensorDescription, ...] = (
     EufyMakeSensorDescription(
         key="waste_ink_status",
         name="Waste ink status",
-        value_fn=lambda data: _waste_ink_attributes(data).get("status"),
+        value_fn=lambda data: _map_ink_status(
+            _waste_ink_attributes(data).get("status")
+        ),
+        attributes_fn=lambda data: {
+            "raw_status": _waste_ink_attributes(data).get("status")
+        },
     ),
 )
 
@@ -497,3 +571,11 @@ def _map_int(value: Any, mapping: dict[int, str], fallback: str) -> str | None:
     except (TypeError, ValueError):
         return None
     return mapping.get(int_value, fallback)
+
+
+def _map_ink_status(value: Any) -> str | None:
+    statuses = {
+        0: "No cartridge inserted",
+        1: "Cartridge inserted",
+    }
+    return _map_int(value, statuses, "Unknown status")

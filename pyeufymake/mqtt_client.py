@@ -68,6 +68,7 @@ class EufyMakeMqttStatusClient:
         listen_after_ink: float = 0,
         query_payloads: tuple[dict[str, Any], ...] | None = None,
         publish_topic: str = "query",
+        extra_subscriptions: tuple[str, ...] = (),
         on_decoded_message: Callable[[DecodedMqttMessage], None] | None = None,
     ) -> MqttStatusResult:
         """Connect, request status, and wait for an ink status message."""
@@ -112,9 +113,13 @@ class EufyMakeMqttStatusClient:
                 state["error"] = f"MQTT connect failed with code {code}"
                 done.set()
                 return
-            for topic in self.plan.topics.subscriptions:
+            for topic in (*self.plan.topics.subscriptions, *extra_subscriptions):
                 client.subscribe(topic, qos=0)
-            payloads = query_payloads or (self.plan.status_query,)
+            payloads = (
+                (self.plan.status_query,)
+                if query_payloads is None
+                else query_payloads
+            )
             for payload in payloads:
                 self._publish_query(client, publish_variant, payload, publish_topic)
 
