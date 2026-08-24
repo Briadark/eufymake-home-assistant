@@ -25,6 +25,11 @@ BLOCKED_QUERY_COMMANDS = {
         "notice during purifier discovery"
     ),
 }
+E1_LEVELS = {
+    "low": 0,
+    "medium": 1,
+    "high": 2,
+}
 
 
 def default_profile_dir() -> Path:
@@ -110,8 +115,18 @@ def main() -> int:
     parser.add_argument(
         "--publish-topic",
         choices=("query", "command"),
-        default="query",
+        default=None,
         help="MQTT topic family to publish the payload to.",
+    )
+    parser.add_argument(
+        "--set-fill-light",
+        choices=("off", "low", "medium", "high"),
+        help="Publish an E1 fill-in light control command without JSON quoting.",
+    )
+    parser.add_argument(
+        "--set-notification-sound",
+        choices=("off", "low", "medium", "high"),
+        help="Publish an E1 notification sound control command without JSON quoting.",
     )
     parser.add_argument(
         "--listen-only",
@@ -160,11 +175,16 @@ def main() -> int:
     query_payloads = _query_payloads(
         args.query,
         args.query_command,
+        fill_light=args.set_fill_light,
+        notification_sound=args.set_notification_sound,
         allow_risky=args.allow_risky_query,
+    )
+    publish_topic = args.publish_topic or (
+        "command" if args.set_fill_light or args.set_notification_sound else "query"
     )
 
     print(f"  publish_variant: {args.publish_variant}")
-    print(f"  publish_topic: {args.publish_topic}")
+    print(f"  publish_topic: {publish_topic}")
     if query_payloads is not None:
         print(f"  query_payloads: {query_payloads}")
     if args.listen_only:
@@ -179,7 +199,7 @@ def main() -> int:
             publish_variant=args.publish_variant,
             listen_after_ink=args.listen_after_ink,
             query_payloads=() if args.listen_only else query_payloads,
-            publish_topic=args.publish_topic,
+            publish_topic=publish_topic,
             extra_subscriptions=_extra_subscriptions(
                 plan,
                 capture_device_topics=args.capture_device_topics,
@@ -209,9 +229,15 @@ def _query_payloads(
     raw_queries: list[str] | None,
     command_types: list[int] | None,
     *,
+    fill_light: str | None,
+    notification_sound: str | None,
     allow_risky: bool,
 ) -> tuple[dict[str, Any], ...] | None:
     payloads: list[dict[str, Any]] = []
+    if fill_light:
+        payloads.append(_fill_light_payload(fill_light))
+    if notification_sound:
+        payloads.append(_notification_sound_payload(notification_sound))
     for command_type in command_types or []:
         _check_query_command(command_type, allow_risky=allow_risky)
         payloads.append({"commandType": command_type})
@@ -227,6 +253,23 @@ def _query_payloads(
             _check_query_command(command_type, allow_risky=allow_risky)
         payloads.append(payload)
     return tuple(payloads) if payloads else None
+
+
+def _fill_light_payload(value: str) -> dict[str, int]:
+    if value == "off":
+        return {"commandType": 1133, "light": 0, "light_level": 0}
+    return {"commandType": 1133, "light": 1, "light_level": E1_LEVELS[value]}
+
+
+def _notification_sound_payload(value: str) -> dict[str, int]:
+    if value == "off":
+        return {"commandType": 1045, "beep": 0, "beep_level": 2, "light": 1}
+    return {
+        "commandType": 1045,
+        "beep": 1,
+        "beep_level": E1_LEVELS[value],
+        "light": 1,
+    }
 
 
 def _extra_subscriptions(

@@ -25,7 +25,6 @@ async def async_setup_entry(
     async_add_entities(
         [
             EufyMakeE1NotificationSoundSwitch(coordinator, entry),
-            EufyMakeE1FillLightSwitch(coordinator, entry),
         ]
     )
 

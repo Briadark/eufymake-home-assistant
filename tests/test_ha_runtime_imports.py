@@ -885,6 +885,44 @@ def test_runtime_fill_light_status_maps_toggle_and_level() -> None:
     assert status.level == 1
 
 
+def test_runtime_e1_settings_queries_include_sound_and_light() -> None:
+    _stub_homeassistant()
+    runtime = _load_module(
+        "custom_components.eufymake_e1.runtime",
+        COMPONENT_DIR / "runtime.py",
+    )
+
+    assert runtime.E1_SETTINGS_QUERY_COMMANDS == (
+        {"commandType": 1045},
+        {"commandType": 1133},
+    )
+
+
+def test_runtime_command_state_echo_matches_requested_payload() -> None:
+    _stub_homeassistant()
+    runtime = _load_module(
+        "custom_components.eufymake_e1.runtime",
+        COMPONENT_DIR / "runtime.py",
+    )
+
+    assert runtime._command_state_matches(
+        {"commandType": 1045, "beep": 1, "beep_level": 1, "light": 1},
+        {"commandType": 1045, "beep": 1, "beep_level": 1, "light": 1},
+    )
+    assert runtime._command_state_matches(
+        {"commandType": 1133, "light": 0, "light_level": 2},
+        {"commandType": 1133, "light": 0},
+    )
+    assert not runtime._command_state_matches(
+        {"commandType": 1045, "beep": 1, "beep_level": 1, "light": 1},
+        {"commandType": 1045, "beep": 1, "beep_level": 2, "light": 1},
+    )
+    assert not runtime._command_state_matches(
+        {"commandType": 1045, "beep": 1, "beep_level": 1, "light": 1},
+        {"commandType": 1045},
+    )
+
+
 def test_coordinator_sends_e1_sound_and_light_command_payloads(monkeypatch) -> None:
     _stub_homeassistant()
     coordinator = _load_module(
@@ -898,11 +936,18 @@ def test_coordinator_sends_e1_sound_and_light_command_payloads(monkeypatch) -> N
         def __init__(self, **kwargs):
             sent.append({"client": kwargs})
 
-        def send(self, payload, *, expected_command_type):
+        def send(
+            self,
+            payload,
+            *,
+            expected_command_type,
+            preflight_query_payloads=(),
+        ):
             sent.append(
                 {
                     "payload": payload,
                     "expected_command_type": expected_command_type,
+                    "preflight_query_payloads": preflight_query_payloads,
                 }
             )
 
@@ -930,6 +975,7 @@ def test_coordinator_sends_e1_sound_and_light_command_payloads(monkeypatch) -> N
 
     instance._send_notification_sound_command(False, 2)
     instance._send_fill_light_command(True, 1)
+    instance._send_fill_light_command(False, 2)
 
     assert sent == [
         {
@@ -949,6 +995,10 @@ def test_coordinator_sends_e1_sound_and_light_command_payloads(monkeypatch) -> N
                 "light": 1,
             },
             "expected_command_type": 1045,
+            "preflight_query_payloads": (
+                {"commandType": 1045},
+                {"commandType": 1133},
+            ),
         },
         {
             "client": {
@@ -966,6 +1016,31 @@ def test_coordinator_sends_e1_sound_and_light_command_payloads(monkeypatch) -> N
                 "light_level": 1,
             },
             "expected_command_type": 1133,
+            "preflight_query_payloads": (
+                {"commandType": 1045},
+                {"commandType": 1133},
+            ),
+        },
+        {
+            "client": {
+                "host": "make-mqtt-test",
+                "station_sn": "AKTEST",
+                "user_id": "123",
+                "email": "user@example.test",
+                "secret_key": "0" * 32,
+            }
+        },
+        {
+            "payload": {
+                "commandType": 1133,
+                "light": 0,
+                "light_level": 0,
+            },
+            "expected_command_type": 1133,
+            "preflight_query_payloads": (
+                {"commandType": 1045},
+                {"commandType": 1133},
+            ),
         },
     ]
 

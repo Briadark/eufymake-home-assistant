@@ -33,7 +33,6 @@ async def async_setup_entry(
     coordinator: EufyMakeE1Coordinator = hass.data[DOMAIN][entry.entry_id]
     entities: list[SelectEntity] = [
         EufyMakeE1NotificationSoundLevelSelect(coordinator, entry),
-        EufyMakeE1FillLightLevelSelect(coordinator, entry),
     ]
     if not _purifier(coordinator.data or {}):
         async_add_entities(entities)

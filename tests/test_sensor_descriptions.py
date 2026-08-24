@@ -16,18 +16,20 @@ def test_ink_sensors_are_grouped_by_channel() -> None:
 
     keys = [description.key for description in module.SENSORS]
 
-    assert keys[:9] == [
+    assert keys[:11] == [
         "availability",
         "print_status",
         "firmware_version",
         "current_accessory",
         "print_progress",
+        "fill_light",
+        "fill_light_level",
         "ink_c",
         "ink_c_expiration_date",
         "ink_c_days_until_expiration",
         "ink_c_manufacture_date",
     ]
-    assert keys[9:17] == [
+    assert keys[11:19] == [
         "ink_c_status",
         "ink_m",
         "ink_m_expiration_date",
@@ -109,6 +111,29 @@ def test_print_progress_returns_active_operation_progress() -> None:
         == 66
     )
     assert progress.value_fn({"test_print": {"active": False, "progress": 100}}) is None
+
+
+def test_fill_light_sensors_report_polled_state() -> None:
+    module = _load_sensor_module()
+    descriptions = {description.key: description for description in module.SENSORS}
+
+    data = {
+        "e1_controls": {
+            "fill_light": {
+                "enabled": True,
+                "level": 2,
+            }
+        }
+    }
+
+    assert descriptions["fill_light"].value_fn(data) == "On"
+    assert descriptions["fill_light_level"].value_fn(data) == "High"
+    assert (
+        descriptions["fill_light"].value_fn(
+            {"e1_controls": {"fill_light": {"enabled": False, "level": 0}}}
+        )
+        == "Off"
+    )
 
 
 def _load_sensor_module():

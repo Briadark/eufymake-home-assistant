@@ -56,6 +56,10 @@ TEST_PRINT_COMMAND = 1064
 TEST_PRINT_MODE = 4
 NOTIFICATION_SOUND_COMMAND = 1045
 FILL_LIGHT_COMMAND = 1133
+E1_SETTINGS_QUERY_COMMANDS = (
+    {"commandType": NOTIFICATION_SOUND_COMMAND},
+    {"commandType": FILL_LIGHT_COMMAND},
+)
 
 MQTT_CA_PEM = """-----BEGIN CERTIFICATE-----
 MIIDwTCCAqmgAwIBAgIJAKrbZvWARI3BMA0GCSqGSIb3DQEBCwUAMHUxCzAJBgNV
@@ -398,8 +402,10 @@ class EufyMakeMqttStatusClient:
                 if listen_after_ink <= 0:
                     done.set()
 
-            if state["ink_status"] is not None and _has_accessory_status(
-                tuple(decoded_messages)
+            if (
+                listen_after_ink <= 0
+                and state["ink_status"] is not None
+                and _has_accessory_status(tuple(decoded_messages))
             ):
                 done.set()
 
@@ -493,6 +499,8 @@ class EufyMakeMqttCommandClient:
         payload: dict[str, Any],
         *,
         expected_command_type: int,
+        preflight_query_payloads: tuple[dict[str, Any], ...] = (),
+        preflight_timeout: float = 2,
         timeout: float = 15,
     ) -> tuple[DecodedMqttMessage, ...]:
         """Publish a command and return decoded reply/state messages."""
@@ -503,7 +511,18 @@ class EufyMakeMqttCommandClient:
 
         done = Event()
         decoded_messages: list[DecodedMqttMessage] = []
-        state: dict[str, Any] = {"error": None, "reply": None}
+        preflight_command_types = {
+            _command_type(item) for item in preflight_query_payloads
+        }
+        preflight_command_types.discard(None)
+        state: dict[str, Any] = {
+            "command_published": False,
+            "error": None,
+            "preflight_seen": set(),
+            "preflight_started_at": None,
+            "reply": None,
+            "state_echo": None,
+        }
 
         client = _build_client(mqtt, self.credentials.client_id)
         client.username_pw_set(
@@ -526,6 +545,21 @@ class EufyMakeMqttCommandClient:
                 return
             for topic in self.topics.subscriptions:
                 client.subscribe(topic, qos=0)
+            if preflight_query_payloads:
+                state["preflight_started_at"] = time.monotonic()
+                for preflight_payload in preflight_query_payloads:
+                    client.publish(
+                        self.topics.query,
+                        build_app_frame(preflight_payload, self.secret_key),
+                        qos=0,
+                    )
+                return
+            publish_command(client)
+
+        def publish_command(client: Any) -> None:
+            if state["command_published"]:
+                return
+            state["command_published"] = True
             client.publish(
                 self.topics.command,
                 build_app_frame(payload, self.secret_key),
@@ -546,8 +580,24 @@ class EufyMakeMqttCommandClient:
                 command_type=_command_type(decoded_payload),
             )
             decoded_messages.append(decoded_message)
+            if (
+                not state["command_published"]
+                and decoded_message.command_type in preflight_command_types
+            ):
+                preflight_seen = state["preflight_seen"]
+                if isinstance(preflight_seen, set):
+                    preflight_seen.add(decoded_message.command_type)
+                    if preflight_seen >= preflight_command_types:
+                        publish_command(client)
+                return
+            if not state["command_published"]:
+                return
             if decoded_message.command_type == expected_command_type:
-                state["reply"] = decoded_payload
+                if "reply" in decoded_payload:
+                    state["reply"] = decoded_payload
+                elif _command_state_matches(payload, decoded_payload):
+                    state["state_echo"] = decoded_payload
+                    done.set()
             if state["reply"] is not None and _command_reply_ok(state["reply"]):
                 done.set()
 
@@ -570,7 +620,18 @@ class EufyMakeMqttCommandClient:
         try:
             client.connect(self.host, MQTT_PORT, keepalive=30)
             client.loop_start()
-            done.wait(timeout)
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                if done.wait(0.2):
+                    break
+                preflight_started_at = state["preflight_started_at"]
+                if (
+                    not state["command_published"]
+                    and preflight_started_at is not None
+                    and time.monotonic() - float(preflight_started_at)
+                    >= preflight_timeout
+                ):
+                    publish_command(client)
         except Exception as err:
             raise EufyMakeRuntimeError(f"MQTT command failed: {err}") from err
         finally:
@@ -579,10 +640,10 @@ class EufyMakeMqttCommandClient:
 
         if state["error"]:
             raise EufyMakeRuntimeError(str(state["error"]))
-        if state["reply"] is None:
-            raise EufyMakeRuntimeError("No MQTT command reply received")
-        if not _command_reply_ok(state["reply"]):
+        if state["reply"] is not None and not _command_reply_ok(state["reply"]):
             raise EufyMakeRuntimeError(f"MQTT command was rejected: {state['reply']}")
+        if state["reply"] is None and state["state_echo"] is None:
+            raise EufyMakeRuntimeError("No MQTT command reply received")
         return tuple(decoded_messages)
 
     def _try_decode(self, payload: bytes) -> tuple[str, Any] | None:
@@ -604,6 +665,20 @@ def _command_reply_ok(payload: Any) -> bool:
         return int(payload.get("reply")) == 0
     except (TypeError, ValueError):
         return False
+
+
+def _command_state_matches(command: dict[str, Any], state: dict[str, Any]) -> bool:
+    """Return whether a command-shaped state echo confirms the requested command."""
+    matched_state_fields = 0
+    for key, value in state.items():
+        if key in {"commandType", "reply"}:
+            continue
+        if key not in command:
+            continue
+        if command[key] != value:
+            return False
+        matched_state_fields += 1
+    return matched_state_fields > 0
 
 
 def _set_tls(client: Any) -> None:

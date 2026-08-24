@@ -154,6 +154,22 @@ def _purifier_state_value_fn(key: str) -> Callable[[dict[str, Any]], Any]:
     return lambda data: _purifier_state(data).get(key)
 
 
+def _e1_control_state(data: dict[str, Any], key: str) -> dict[str, Any]:
+    controls = data.get("e1_controls", {})
+    if not isinstance(controls, dict):
+        return {}
+    state = controls.get(key, {})
+    return state if isinstance(state, dict) else {}
+
+
+def _fill_light_enabled(data: dict[str, Any]) -> str | None:
+    return _map_enabled(_e1_control_state(data, "fill_light").get("enabled"))
+
+
+def _fill_light_level(data: dict[str, Any]) -> str | None:
+    return _map_e1_level(_e1_control_state(data, "fill_light").get("level"))
+
+
 def _purifier_mode(data: dict[str, Any]) -> str | None:
     return _map_purifier_mode(_purifier_state(data).get("work_mode"))
 
@@ -218,6 +234,22 @@ BASE_SENSORS: tuple[EufyMakeSensorDescription, ...] = (
         name="Print progress",
         native_unit_of_measurement=PERCENTAGE,
         value_fn=_print_progress,
+    ),
+    EufyMakeSensorDescription(
+        key="fill_light",
+        name="Fill-in light",
+        value_fn=_fill_light_enabled,
+        attributes_fn=lambda data: {
+            "raw_enabled": _e1_control_state(data, "fill_light").get("enabled")
+        },
+    ),
+    EufyMakeSensorDescription(
+        key="fill_light_level",
+        name="Fill-in light level",
+        value_fn=_fill_light_level,
+        attributes_fn=lambda data: {
+            "raw_level": _e1_control_state(data, "fill_light").get("level")
+        },
     ),
 )
 
@@ -581,3 +613,23 @@ def _map_ink_status(attributes: dict[str, Any]) -> str | None:
     if status is not None:
         return "Unknown"
     return None
+
+
+def _map_enabled(value: Any) -> str | None:
+    if value is True:
+        return "On"
+    if value is False:
+        return "Off"
+    return None
+
+
+def _map_e1_level(value: Any) -> str | None:
+    return _map_int(
+        value,
+        {
+            0: "Low",
+            1: "Medium",
+            2: "High",
+        },
+        "Unknown",
+    )
