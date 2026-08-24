@@ -30,7 +30,7 @@ from .const import (
 )
 from .runtime import (
     ACCESSORY_QUERY_COMMANDS,
-    E1_SETTINGS_QUERY_COMMANDS,
+    E1_READ_ONLY_SETTINGS_QUERY_COMMANDS,
     EufyMakeMqttCommandClient,
     EufyMakeMqttStatusClient,
     EufyMakeRuntimeError,
@@ -97,7 +97,7 @@ class EufyMakeE1Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                 query_payloads=(
                     plan.status_query,
                     *ACCESSORY_QUERY_COMMANDS,
-                    *E1_SETTINGS_QUERY_COMMANDS,
+                    *E1_READ_ONLY_SETTINGS_QUERY_COMMANDS,
                 ),
             )
         except EufyMakeRuntimeError as err:
@@ -334,7 +334,6 @@ class EufyMakeE1Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         ).send(
             payload,
             expected_command_type=expected_command_type,
-            preflight_query_payloads=E1_SETTINGS_QUERY_COMMANDS,
         )
 
     def _async_update_e1_control_state(

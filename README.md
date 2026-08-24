@@ -15,6 +15,7 @@ The integration connects through eufyMake's cloud and MQTT services and exposes 
 - Availability and connectivity sensors
 - Firmware information
 - Current accessory detection
+- Read-only notification sound and fill-in light state
 - Ink level monitoring
 - Ink manufacture and expiration information
 - Days-until-expiration sensors

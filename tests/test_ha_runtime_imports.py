@@ -885,16 +885,15 @@ def test_runtime_fill_light_status_maps_toggle_and_level() -> None:
     assert status.level == 1
 
 
-def test_runtime_e1_settings_queries_include_sound_and_light() -> None:
+def test_runtime_e1_read_only_settings_queries_poll_safe_sound_state_only() -> None:
     _stub_homeassistant()
     runtime = _load_module(
         "custom_components.eufymake_e1.runtime",
         COMPONENT_DIR / "runtime.py",
     )
 
-    assert runtime.E1_SETTINGS_QUERY_COMMANDS == (
+    assert runtime.E1_READ_ONLY_SETTINGS_QUERY_COMMANDS == (
         {"commandType": 1045},
-        {"commandType": 1133},
     )
 
 
@@ -995,10 +994,7 @@ def test_coordinator_sends_e1_sound_and_light_command_payloads(monkeypatch) -> N
                 "light": 1,
             },
             "expected_command_type": 1045,
-            "preflight_query_payloads": (
-                {"commandType": 1045},
-                {"commandType": 1133},
-            ),
+            "preflight_query_payloads": (),
         },
         {
             "client": {
@@ -1016,10 +1012,7 @@ def test_coordinator_sends_e1_sound_and_light_command_payloads(monkeypatch) -> N
                 "light_level": 1,
             },
             "expected_command_type": 1133,
-            "preflight_query_payloads": (
-                {"commandType": 1045},
-                {"commandType": 1133},
-            ),
+            "preflight_query_payloads": (),
         },
         {
             "client": {
@@ -1037,10 +1030,7 @@ def test_coordinator_sends_e1_sound_and_light_command_payloads(monkeypatch) -> N
                 "light_level": 0,
             },
             "expected_command_type": 1133,
-            "preflight_query_payloads": (
-                {"commandType": 1045},
-                {"commandType": 1133},
-            ),
+            "preflight_query_payloads": (),
         },
     ]
 

@@ -11,9 +11,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_DEVICE_SN, DOMAIN
-from .coordinator import E1_LEVEL_VALUES, EufyMakeE1Coordinator, PURIFIER_DELAY_VALUES
+from .coordinator import EufyMakeE1Coordinator, PURIFIER_DELAY_VALUES
 from .coordinator import PURIFIER_MODE_VALUES
-from .device_info import e1_device_info, p1_device_info
+from .device_info import p1_device_info
 
 PURIFIER_DELAY_OPTIONS = {
     "Immediately": 0,
@@ -31,9 +31,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up eufyMake select entities."""
     coordinator: EufyMakeE1Coordinator = hass.data[DOMAIN][entry.entry_id]
-    entities: list[SelectEntity] = [
-        EufyMakeE1NotificationSoundLevelSelect(coordinator, entry),
-    ]
+    entities: list[SelectEntity] = []
     if not _purifier(coordinator.data or {}):
         async_add_entities(entities)
         return
@@ -44,64 +42,6 @@ async def async_setup_entry(
         )
     )
     async_add_entities(entities)
-
-
-class EufyMakeE1NotificationSoundLevelSelect(
-    CoordinatorEntity[EufyMakeE1Coordinator],
-    SelectEntity,
-):
-    """Notification sound level selector for a eufyMake E1."""
-
-    _attr_has_entity_name = True
-    _attr_name = "Notification sound level"
-    _attr_options = list(E1_LEVEL_VALUES)
-
-    def __init__(self, coordinator: EufyMakeE1Coordinator, entry: ConfigEntry) -> None:
-        """Initialize the E1 sound level selector."""
-        super().__init__(coordinator)
-        device_sn = entry.data[CONF_DEVICE_SN]
-        self._attr_unique_id = f"{device_sn}_notification_sound_level"
-        self._attr_device_info = e1_device_info(entry, coordinator.data)
-
-    @property
-    def current_option(self) -> str | None:
-        """Return the current notification sound level."""
-        level = _control_state(self.coordinator.data or {}, "notification_sound").get(
-            "level"
-        )
-        return _level_name(level)
-
-    async def async_select_option(self, option: str) -> None:
-        """Set the notification sound level."""
-        await self.coordinator.async_set_notification_sound_level(option)
-
-
-class EufyMakeE1FillLightLevelSelect(
-    CoordinatorEntity[EufyMakeE1Coordinator],
-    SelectEntity,
-):
-    """Fill-in light level selector for a eufyMake E1."""
-
-    _attr_has_entity_name = True
-    _attr_name = "Fill-in light level"
-    _attr_options = list(E1_LEVEL_VALUES)
-
-    def __init__(self, coordinator: EufyMakeE1Coordinator, entry: ConfigEntry) -> None:
-        """Initialize the E1 fill-in light level selector."""
-        super().__init__(coordinator)
-        device_sn = entry.data[CONF_DEVICE_SN]
-        self._attr_unique_id = f"{device_sn}_fill_light_level"
-        self._attr_device_info = e1_device_info(entry, coordinator.data)
-
-    @property
-    def current_option(self) -> str | None:
-        """Return the current fill-in light level."""
-        level = _control_state(self.coordinator.data or {}, "fill_light").get("level")
-        return _level_name(level)
-
-    async def async_select_option(self, option: str) -> None:
-        """Set the fill-in light level."""
-        await self.coordinator.async_set_fill_light_level(option)
 
 
 class EufyMakeP1ModeSelect(
@@ -180,22 +120,6 @@ def _purifier(data: dict[str, Any]) -> dict[str, Any]:
 def _purifier_state(data: dict[str, Any]) -> dict[str, Any]:
     state = _purifier(data).get("state", {})
     return state if isinstance(state, dict) else {}
-
-
-def _control_state(data: dict[str, Any], key: str) -> dict[str, Any]:
-    controls = data.get("e1_controls", {})
-    if not isinstance(controls, dict):
-        return {}
-    state = controls.get(key, {})
-    return state if isinstance(state, dict) else {}
-
-
-def _level_name(value: Any) -> str | None:
-    parsed = _optional_int(value)
-    for name, level in E1_LEVEL_VALUES.items():
-        if parsed == level:
-            return name
-    return None
 
 
 def _purifier_sn(coordinator: EufyMakeE1Coordinator, fallback_e1_sn: str) -> str:

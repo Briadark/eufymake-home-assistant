@@ -8,7 +8,7 @@ from homeassistant.core import HomeAssistant
 
 from .const import CONF_AUTH_TOKEN, DOMAIN
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.SELECT, Platform.SWITCH]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.SELECT]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
