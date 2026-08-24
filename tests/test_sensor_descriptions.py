@@ -16,22 +16,18 @@ def test_ink_sensors_are_grouped_by_channel() -> None:
 
     keys = [description.key for description in module.SENSORS]
 
-    assert keys[:13] == [
+    assert keys[:9] == [
         "availability",
         "print_status",
         "firmware_version",
         "current_accessory",
         "print_progress",
-        "notification_sound",
-        "notification_sound_level",
-        "fill_light",
-        "fill_light_level",
         "ink_c",
         "ink_c_expiration_date",
         "ink_c_days_until_expiration",
         "ink_c_manufacture_date",
     ]
-    assert keys[13:21] == [
+    assert keys[9:17] == [
         "ink_c_status",
         "ink_m",
         "ink_m_expiration_date",
@@ -113,52 +109,6 @@ def test_print_progress_returns_active_operation_progress() -> None:
         == 66
     )
     assert progress.value_fn({"test_print": {"active": False, "progress": 100}}) is None
-
-
-def test_fill_light_sensors_report_polled_state() -> None:
-    module = _load_sensor_module()
-    descriptions = {description.key: description for description in module.SENSORS}
-
-    data = {
-        "e1_controls": {
-            "fill_light": {
-                "enabled": True,
-                "level": 2,
-            }
-        }
-    }
-
-    assert descriptions["fill_light"].value_fn(data) == "On"
-    assert descriptions["fill_light_level"].value_fn(data) == "High"
-    assert (
-        descriptions["fill_light"].value_fn(
-            {"e1_controls": {"fill_light": {"enabled": False, "level": 0}}}
-        )
-        == "Off"
-    )
-
-
-def test_notification_sound_sensors_report_polled_state() -> None:
-    module = _load_sensor_module()
-    descriptions = {description.key: description for description in module.SENSORS}
-
-    data = {
-        "e1_controls": {
-            "notification_sound": {
-                "enabled": True,
-                "level": 1,
-            }
-        }
-    }
-
-    assert descriptions["notification_sound"].value_fn(data) == "On"
-    assert descriptions["notification_sound_level"].value_fn(data) == "Medium"
-    assert (
-        descriptions["notification_sound"].value_fn(
-            {"e1_controls": {"notification_sound": {"enabled": False, "level": 2}}}
-        )
-        == "Off"
-    )
 
 
 def _load_sensor_module():

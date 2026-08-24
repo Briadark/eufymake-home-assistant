@@ -162,22 +162,6 @@ def _e1_control_state(data: dict[str, Any], key: str) -> dict[str, Any]:
     return state if isinstance(state, dict) else {}
 
 
-def _notification_sound_enabled(data: dict[str, Any]) -> str | None:
-    return _map_enabled(_e1_control_state(data, "notification_sound").get("enabled"))
-
-
-def _notification_sound_level(data: dict[str, Any]) -> str | None:
-    return _map_e1_level(_e1_control_state(data, "notification_sound").get("level"))
-
-
-def _fill_light_enabled(data: dict[str, Any]) -> str | None:
-    return _map_enabled(_e1_control_state(data, "fill_light").get("enabled"))
-
-
-def _fill_light_level(data: dict[str, Any]) -> str | None:
-    return _map_e1_level(_e1_control_state(data, "fill_light").get("level"))
-
-
 def _purifier_mode(data: dict[str, Any]) -> str | None:
     return _map_purifier_mode(_purifier_state(data).get("work_mode"))
 
@@ -242,40 +226,6 @@ BASE_SENSORS: tuple[EufyMakeSensorDescription, ...] = (
         name="Print progress",
         native_unit_of_measurement=PERCENTAGE,
         value_fn=_print_progress,
-    ),
-    EufyMakeSensorDescription(
-        key="notification_sound",
-        name="Notification sound",
-        value_fn=_notification_sound_enabled,
-        attributes_fn=lambda data: {
-            "raw_enabled": _e1_control_state(data, "notification_sound").get(
-                "enabled"
-            )
-        },
-    ),
-    EufyMakeSensorDescription(
-        key="notification_sound_level",
-        name="Notification sound level",
-        value_fn=_notification_sound_level,
-        attributes_fn=lambda data: {
-            "raw_level": _e1_control_state(data, "notification_sound").get("level")
-        },
-    ),
-    EufyMakeSensorDescription(
-        key="fill_light",
-        name="Fill-in light",
-        value_fn=_fill_light_enabled,
-        attributes_fn=lambda data: {
-            "raw_enabled": _e1_control_state(data, "fill_light").get("enabled")
-        },
-    ),
-    EufyMakeSensorDescription(
-        key="fill_light_level",
-        name="Fill-in light level",
-        value_fn=_fill_light_level,
-        attributes_fn=lambda data: {
-            "raw_level": _e1_control_state(data, "fill_light").get("level")
-        },
     ),
 )
 

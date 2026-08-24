@@ -885,16 +885,14 @@ def test_runtime_fill_light_status_maps_toggle_and_level() -> None:
     assert status.level == 1
 
 
-def test_runtime_e1_read_only_settings_queries_poll_safe_sound_state_only() -> None:
+def test_runtime_e1_read_only_settings_queries_are_passive_only() -> None:
     _stub_homeassistant()
     runtime = _load_module(
         "custom_components.eufymake_e1.runtime",
         COMPONENT_DIR / "runtime.py",
     )
 
-    assert runtime.E1_READ_ONLY_SETTINGS_QUERY_COMMANDS == (
-        {"commandType": 1045},
-    )
+    assert runtime.E1_READ_ONLY_SETTINGS_QUERY_COMMANDS == ()
 
 
 def test_runtime_command_state_echo_matches_requested_payload() -> None:
