@@ -93,6 +93,25 @@ def test_print_progress_returns_active_operation_progress() -> None:
     assert (
         progress.value_fn(
             {
+                "design_preparation": {"active": True, "progress": 69},
+                "print_job": {"active": True, "progress": 0},
+            }
+        )
+        == 69
+    )
+    assert (
+        progress.value_fn(
+            {
+                "design_preparation": {"active": False, "progress": 100},
+                "file_transfer": {"active": True, "progress": 42},
+                "print_job": {"active": True, "progress": 0},
+            }
+        )
+        == 42
+    )
+    assert (
+        progress.value_fn(
+            {
                 "ink_injection": {"active": True, "progress": 49},
                 "white_ink_recovery": {"active": False, "progress": 100},
             }

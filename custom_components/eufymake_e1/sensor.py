@@ -87,6 +87,8 @@ def _print_status_attributes(data: dict[str, Any]) -> dict[str, Any]:
     attributes = data.get("print_status_details", {})
     if not isinstance(attributes, dict):
         attributes = {}
+    design_preparation = _design_preparation(data)
+    file_transfer = _file_transfer(data)
     injection = _ink_injection(data)
     recovery = _white_ink_recovery(data)
     status_check = _status_check(data)
@@ -94,6 +96,19 @@ def _print_status_attributes(data: dict[str, Any]) -> dict[str, Any]:
     print_job = _print_job(data)
     return {
         **attributes,
+        "design_preparation_active": design_preparation.get("active"),
+        "design_preparation_progress": design_preparation.get("progress"),
+        "design_preparation_height": design_preparation.get("height"),
+        "design_preparation_plate_type": design_preparation.get("plate_type"),
+        "design_preparation_plate_print_width": design_preparation.get(
+            "plate_print_width"
+        ),
+        "design_preparation_plate_print_height": design_preparation.get(
+            "plate_print_height"
+        ),
+        "file_transfer_active": file_transfer.get("active"),
+        "file_transfer_progress": file_transfer.get("progress"),
+        "file_transfer_result": file_transfer.get("result"),
         "ink_injection_active": injection.get("active"),
         "ink_injection_progress": injection.get("progress"),
         "white_ink_recovery_active": recovery.get("active"),
@@ -111,6 +126,8 @@ def _print_status_attributes(data: dict[str, Any]) -> dict[str, Any]:
 
 def _print_progress(data: dict[str, Any]) -> Any:
     for action in (
+        _design_preparation(data),
+        _file_transfer(data),
         _ink_injection(data),
         _white_ink_recovery(data),
         _status_check(data),
@@ -120,6 +137,16 @@ def _print_progress(data: dict[str, Any]) -> Any:
         if action.get("active"):
             return action.get("progress")
     return None
+
+
+def _design_preparation(data: dict[str, Any]) -> dict[str, Any]:
+    design_preparation = data.get("design_preparation", {})
+    return design_preparation if isinstance(design_preparation, dict) else {}
+
+
+def _file_transfer(data: dict[str, Any]) -> dict[str, Any]:
+    file_transfer = data.get("file_transfer", {})
+    return file_transfer if isinstance(file_transfer, dict) else {}
 
 
 def _ink_injection(data: dict[str, Any]) -> dict[str, Any]:

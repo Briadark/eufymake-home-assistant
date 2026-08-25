@@ -384,6 +384,127 @@ def test_coordinator_live_data_exposes_regular_print_progress() -> None:
     }
 
 
+def test_coordinator_live_data_exposes_design_preparation_progress() -> None:
+    _stub_homeassistant()
+    package = types.ModuleType("custom_components.eufymake_e1")
+    package.__path__ = [str(COMPONENT_DIR)]
+    sys.modules["custom_components.eufymake_e1"] = package
+    sys.modules["custom_components.eufymake_e1.const"] = _load_real_const()
+
+    runtime = _load_module(
+        "custom_components.eufymake_e1.runtime",
+        COMPONENT_DIR / "runtime.py",
+    )
+    coordinator = _load_module(
+        "custom_components.eufymake_e1.coordinator",
+        COMPONENT_DIR / "coordinator.py",
+    )
+
+    data = coordinator._data_from_live_result(
+        None,
+        decoded_messages=(
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1000,
+                    "status": {
+                        "state": 8,
+                        "step": 0,
+                        "ext": {"maintainable": 1},
+                    },
+                },
+                command_type=1000,
+            ),
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1105,
+                    "value": 1,
+                    "step": 1,
+                    "height": 8.755,
+                    "plate_type": 2,
+                    "plate_print_width": 335,
+                    "plate_print_height": 90,
+                    "progress": 69,
+                },
+                command_type=1105,
+            ),
+        ),
+        firmware_version="4.0.2",
+        mqtt_online=True,
+        p2p_online=None,
+    )
+
+    assert data["print_status"] == "Taking snapshots"
+    assert data["design_preparation"] == {
+        "name": "Taking snapshots",
+        "active": True,
+        "progress": 69,
+        "height": 8.755,
+        "plate_type": 2,
+        "plate_print_width": 335,
+        "plate_print_height": 90,
+    }
+
+
+def test_coordinator_live_data_exposes_file_transfer_progress() -> None:
+    _stub_homeassistant()
+    package = types.ModuleType("custom_components.eufymake_e1")
+    package.__path__ = [str(COMPONENT_DIR)]
+    sys.modules["custom_components.eufymake_e1"] = package
+    sys.modules["custom_components.eufymake_e1.const"] = _load_real_const()
+
+    runtime = _load_module(
+        "custom_components.eufymake_e1.runtime",
+        COMPONENT_DIR / "runtime.py",
+    )
+    coordinator = _load_module(
+        "custom_components.eufymake_e1.coordinator",
+        COMPONENT_DIR / "coordinator.py",
+    )
+
+    data = coordinator._data_from_live_result(
+        None,
+        decoded_messages=(
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1000,
+                    "status": {
+                        "state": 2,
+                        "step": 1,
+                        "ext": {"maintainable": 1},
+                    },
+                },
+                command_type=1000,
+            ),
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1053,
+                    "downloadFileProgress": 42,
+                    "result": 0,
+                },
+                command_type=1053,
+            ),
+        ),
+        firmware_version="4.0.2",
+        mqtt_online=True,
+        p2p_online=None,
+    )
+
+    assert data["print_status"] == "Sending file to device"
+    assert data["file_transfer"] == {
+        "active": True,
+        "progress": 42,
+        "result": 0,
+    }
+
+
 def test_coordinator_live_data_exposes_e1_sound_and_light_settings() -> None:
     _stub_homeassistant()
     package = types.ModuleType("custom_components.eufymake_e1")
@@ -660,6 +781,52 @@ def test_runtime_printer_status_maps_printing() -> None:
     assert status.name == "Printing"
     assert status.state == 2
     assert status.step == 4
+
+
+def test_runtime_printer_status_maps_ready_to_print_and_priming() -> None:
+    _stub_homeassistant()
+    runtime = _load_module(
+        "custom_components.eufymake_e1.runtime",
+        COMPONENT_DIR / "runtime.py",
+    )
+
+    ready = runtime.find_printer_status(
+        (
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1000,
+                    "status": {
+                        "state": 2,
+                        "step": 2,
+                        "ext": {"maintainable": 1},
+                    },
+                },
+                command_type=1000,
+            ),
+        )
+    )
+    priming = runtime.find_printer_status(
+        (
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1000,
+                    "status": {
+                        "state": 2,
+                        "step": 6,
+                        "ext": {"maintainable": 1},
+                    },
+                },
+                command_type=1000,
+            ),
+        )
+    )
+
+    assert ready.name == "Ready to print"
+    assert priming.name == "Priming print head"
 
 
 def test_runtime_printer_status_maps_unavailable_with_error_codes() -> None:
@@ -960,6 +1127,90 @@ def test_runtime_print_job_status_maps_completed_progress() -> None:
     assert status.progress == 100
     assert status.remaining_time == 17
     assert status.elapsed_time == 329
+
+
+def test_runtime_design_preparation_status_maps_latest_step() -> None:
+    _stub_homeassistant()
+    runtime = _load_module(
+        "custom_components.eufymake_e1.runtime",
+        COMPONENT_DIR / "runtime.py",
+    )
+
+    status = runtime.find_design_preparation_status(
+        (
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1105,
+                    "value": 1,
+                    "step": 0,
+                    "progress": 37,
+                },
+                command_type=1105,
+            ),
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1105,
+                    "value": 1,
+                    "step": 1,
+                    "height": 8.755,
+                    "plate_type": 2,
+                    "plate_print_width": 335,
+                    "plate_print_height": 90,
+                    "progress": 69,
+                },
+                command_type=1105,
+            ),
+        )
+    )
+
+    assert status.name == "Taking snapshots"
+    assert status.active is True
+    assert status.progress == 69
+    assert status.height == 8.755
+    assert status.plate_type == 2
+    assert status.plate_print_width == 335
+    assert status.plate_print_height == 90
+
+
+def test_runtime_file_transfer_status_maps_progress_and_completion() -> None:
+    _stub_homeassistant()
+    runtime = _load_module(
+        "custom_components.eufymake_e1.runtime",
+        COMPONENT_DIR / "runtime.py",
+    )
+
+    status = runtime.find_file_transfer_status(
+        (
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1053,
+                    "downloadFileProgress": 0,
+                    "result": 0,
+                },
+                command_type=1053,
+            ),
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1053,
+                    "downloadFileProgress": 100,
+                    "result": 1,
+                },
+                command_type=1053,
+            ),
+        )
+    )
+
+    assert status.active is False
+    assert status.progress == 100
+    assert status.result == 1
 
 
 def test_runtime_notification_sound_status_maps_toggle_and_level() -> None:

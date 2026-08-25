@@ -50,12 +50,21 @@ PRINTER_STATE_NAMES = {
     10: "Unavailable",
     13: "Maintenance",
 }
+PRINTER_STEP_STATE_NAMES = {
+    (2, 1): "Sending file to device",
+    (2, 2): "Ready to print",
+    (2, 4): "Printing",
+    (2, 5): "Preparing print",
+    (2, 6): "Priming print head",
+}
 INK_INJECTION_COMMAND = 1136
 WHITE_INK_RECOVERY_COMMAND = 1188
 STATUS_CHECK_COMMAND = 1131
 TEST_PRINT_COMMAND = 1064
 TEST_PRINT_MODE = 4
 PRINT_JOB_STATUS_COMMAND = 1001
+DESIGN_PREPARATION_COMMAND = 1105
+FILE_TRANSFER_COMMAND = 1053
 NOTIFICATION_SOUND_COMMAND = 1045
 FILL_LIGHT_COMMAND = 1133
 E1_READ_ONLY_SETTINGS_QUERY_COMMANDS: tuple[dict[str, int], ...] = ()
@@ -236,6 +245,28 @@ class PrintJobStatus:
     progress: int | None
     remaining_time: int | None
     elapsed_time: int | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class DesignPreparationStatus:
+    """Parsed E1 design preparation status."""
+
+    name: str | None
+    active: bool | None
+    progress: int | None
+    height: float | None
+    plate_type: int | None
+    plate_print_width: int | None
+    plate_print_height: int | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class FileTransferStatus:
+    """Parsed E1 print file transfer status."""
+
+    active: bool | None
+    progress: int | None
+    result: int | None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -881,7 +912,7 @@ def find_printer_status(messages: tuple[DecodedMqttMessage, ...]) -> PrinterStat
             error_codes = ()
 
     return PrinterStatus(
-        name=_printer_state_name(state),
+        name=_printer_state_name(state, step),
         state=state,
         step=step,
         maintainable=maintainable,
@@ -999,6 +1030,73 @@ def find_print_job_status(
         progress=progress,
         remaining_time=remaining_time,
         elapsed_time=elapsed_time,
+    )
+
+
+def find_design_preparation_status(
+    messages: tuple[DecodedMqttMessage, ...],
+) -> DesignPreparationStatus:
+    """Find the latest design preparation progress from decoded MQTT messages."""
+    active = None
+    progress = None
+    step = None
+    height = None
+    plate_type = None
+    plate_print_width = None
+    plate_print_height = None
+
+    for decoded_message in messages:
+        payload = decoded_message.payload
+        if not isinstance(payload, dict):
+            continue
+        if _optional_int(payload.get("commandType")) != DESIGN_PREPARATION_COMMAND:
+            continue
+
+        active = _optional_bool(payload.get("value"))
+        progress = _optional_int(payload.get("progress"))
+        step = _optional_int(payload.get("step"))
+        height = _optional_float(payload.get("height"))
+        plate_type = _optional_int(payload.get("plate_type"))
+        plate_print_width = _optional_int(payload.get("plate_print_width"))
+        plate_print_height = _optional_int(payload.get("plate_print_height"))
+
+    return DesignPreparationStatus(
+        name=_design_preparation_name(step),
+        active=active,
+        progress=progress,
+        height=height,
+        plate_type=plate_type,
+        plate_print_width=plate_print_width,
+        plate_print_height=plate_print_height,
+    )
+
+
+def find_file_transfer_status(
+    messages: tuple[DecodedMqttMessage, ...],
+) -> FileTransferStatus:
+    """Find the latest print file transfer progress from decoded MQTT messages."""
+    active = None
+    progress = None
+    result = None
+
+    for decoded_message in messages:
+        payload = decoded_message.payload
+        if not isinstance(payload, dict):
+            continue
+        if _optional_int(payload.get("commandType")) != FILE_TRANSFER_COMMAND:
+            continue
+
+        progress = _optional_int(payload.get("downloadFileProgress"))
+        result = _optional_int(payload.get("result"))
+        if progress is not None:
+            active = progress < 100
+        if result == 1:
+            active = False
+
+    return FileTransferStatus(
+        active=active,
+        progress=progress,
+        result=result,
     )
 
 
@@ -1191,6 +1289,13 @@ def _optional_int(value: Any) -> int | None:
         return None
 
 
+def _optional_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _optional_bool(value: Any) -> bool | None:
     parsed = _optional_int(value)
     if parsed is None:
@@ -1208,7 +1313,19 @@ def _accessory_name(plate_type: int | None, attachment_type: int | None) -> str 
     return None
 
 
-def _printer_state_name(state: int | None) -> str | None:
+def _printer_state_name(state: int | None, step: int | None = None) -> str | None:
     if state is None:
         return None
+    if step is not None and (state, step) in PRINTER_STEP_STATE_NAMES:
+        return PRINTER_STEP_STATE_NAMES[(state, step)]
     return PRINTER_STATE_NAMES.get(state, f"Unknown state {state}")
+
+
+def _design_preparation_name(step: int | None) -> str | None:
+    if step == 0:
+        return "Measuring height"
+    if step == 1:
+        return "Taking snapshots"
+    if step is not None:
+        return "Preparing design"
+    return None

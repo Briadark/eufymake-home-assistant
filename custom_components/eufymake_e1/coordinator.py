@@ -39,7 +39,9 @@ from .runtime import (
     NOTIFICATION_SOUND_COMMAND,
     build_probe_plan,
     find_accessory_status,
+    find_design_preparation_status,
     find_fill_light_status,
+    find_file_transfer_status,
     find_ink_injection_status,
     find_notification_sound_status,
     find_print_job_status,
@@ -385,6 +387,8 @@ def _data_from_live_result(
 
     accessory_status = find_accessory_status(decoded_messages)
     printer_status = find_printer_status(decoded_messages)
+    design_preparation_status = find_design_preparation_status(decoded_messages)
+    file_transfer_status = find_file_transfer_status(decoded_messages)
     ink_injection_status = find_ink_injection_status(decoded_messages)
     white_ink_recovery_status = find_white_ink_recovery_status(decoded_messages)
     status_check_status = find_status_check_status(decoded_messages)
@@ -398,11 +402,15 @@ def _data_from_live_result(
         print_status = "Injecting ink"
     elif white_ink_recovery_status.active:
         print_status = "White ink recovery"
+    elif design_preparation_status.active:
+        print_status = design_preparation_status.name
+    elif file_transfer_status.active:
+        print_status = "Sending file to device"
     elif status_check_status.active:
         print_status = "Checking status"
     elif test_print_status.active:
         print_status = "Test printing"
-    elif print_job_status.active:
+    elif print_job_status.active and print_status in (None, "Printing"):
         print_status = "Printing"
 
     return {
@@ -413,6 +421,20 @@ def _data_from_live_result(
             "step": printer_status.step,
             "maintainable": printer_status.maintainable,
             "error_codes": printer_status.error_codes,
+        },
+        "design_preparation": {
+            "name": design_preparation_status.name,
+            "active": design_preparation_status.active,
+            "progress": design_preparation_status.progress,
+            "height": design_preparation_status.height,
+            "plate_type": design_preparation_status.plate_type,
+            "plate_print_width": design_preparation_status.plate_print_width,
+            "plate_print_height": design_preparation_status.plate_print_height,
+        },
+        "file_transfer": {
+            "active": file_transfer_status.active,
+            "progress": file_transfer_status.progress,
+            "result": file_transfer_status.result,
         },
         "ink_injection": {
             "active": ink_injection_status.active,
