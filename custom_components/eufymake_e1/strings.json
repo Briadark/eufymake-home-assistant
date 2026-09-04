@@ -84,6 +84,11 @@
       "p2p_online": {
         "name": "P2P online"
       }
+    },
+    "update": {
+      "firmware": {
+        "name": "Firmware"
+      }
     }
   }
 }

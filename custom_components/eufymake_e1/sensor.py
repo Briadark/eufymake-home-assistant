@@ -94,6 +94,7 @@ def _print_status_attributes(data: dict[str, Any]) -> dict[str, Any]:
     status_check = _status_check(data)
     test_print = _test_print(data)
     print_job = _print_job(data)
+    self_check = _self_check(data)
     return {
         **attributes,
         "design_preparation_active": design_preparation.get("active"),
@@ -121,6 +122,10 @@ def _print_status_attributes(data: dict[str, Any]) -> dict[str, Any]:
         "print_job_progress": print_job.get("progress"),
         "print_job_remaining_time": print_job.get("remaining_time"),
         "print_job_elapsed_time": print_job.get("elapsed_time"),
+        "self_check_active": self_check.get("active"),
+        "self_check_progress": self_check.get("progress"),
+        "self_check_status": self_check.get("status"),
+        "self_check_error_count": self_check.get("error_count"),
     }
 
 
@@ -133,6 +138,7 @@ def _print_progress(data: dict[str, Any]) -> Any:
         _status_check(data),
         _test_print(data),
         _print_job(data),
+        _self_check(data),
     ):
         if action.get("active"):
             return action.get("progress")
@@ -172,6 +178,11 @@ def _test_print(data: dict[str, Any]) -> dict[str, Any]:
 def _print_job(data: dict[str, Any]) -> dict[str, Any]:
     print_job = data.get("print_job", {})
     return print_job if isinstance(print_job, dict) else {}
+
+
+def _self_check(data: dict[str, Any]) -> dict[str, Any]:
+    self_check = data.get("self_check", {})
+    return self_check if isinstance(self_check, dict) else {}
 
 
 def _purifier(data: dict[str, Any]) -> dict[str, Any]:

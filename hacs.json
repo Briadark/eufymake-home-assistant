@@ -1,5 +1,5 @@
 {
   "name": "eufyMake E1",
-  "domains": ["sensor", "select"],
+  "domains": ["sensor", "select", "update"],
   "render_readme": true
 }

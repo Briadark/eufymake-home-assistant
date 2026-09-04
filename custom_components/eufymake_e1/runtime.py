@@ -46,7 +46,9 @@ PRINTER_STATE_NAMES = {
     2: "Printing",
     4: "Printing",
     5: "Performing maintenance",
+    6: "Firmware updating",
     8: "Checking status",
+    9: "Calibrating",
     10: "Unavailable",
     13: "Maintenance",
 }
@@ -65,9 +67,16 @@ TEST_PRINT_MODE = 4
 PRINT_JOB_STATUS_COMMAND = 1001
 DESIGN_PREPARATION_COMMAND = 1105
 FILE_TRANSFER_COMMAND = 1053
+SELF_CHECK_COMMAND = 1123
+FIRMWARE_INFO_COMMAND = 1002
+FIRMWARE_UPDATE_PROGRESS_COMMAND = 1047
+FIRMWARE_UPDATE_NOTICE_COMMAND = 1048
+FIRMWARE_UPDATE_RESULT_COMMAND = 1054
 NOTIFICATION_SOUND_COMMAND = 1045
 FILL_LIGHT_COMMAND = 1133
-E1_READ_ONLY_SETTINGS_QUERY_COMMANDS: tuple[dict[str, int], ...] = ()
+E1_READ_ONLY_SETTINGS_QUERY_COMMANDS: tuple[dict[str, int], ...] = (
+    {"commandType": FIRMWARE_INFO_COMMAND},
+)
 
 MQTT_CA_PEM = """-----BEGIN CERTIFICATE-----
 MIIDwTCCAqmgAwIBAgIJAKrbZvWARI3BMA0GCSqGSIb3DQEBCwUAMHUxCzAJBgNV
@@ -267,6 +276,36 @@ class FileTransferStatus:
     active: bool | None
     progress: int | None
     result: int | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class SelfCheckStatus:
+    """Parsed E1 self-check or calibration status."""
+
+    active: bool | None
+    progress: int | None
+    status: int | None
+    error_count: int | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class FirmwareUpdateStatus:
+    """Parsed E1 firmware update state."""
+
+    available: bool | None
+    current_version: str | None
+    target_version: str | None
+    forced: bool | None
+    upgrade_flag: int | None
+    release_note: str | None
+    reply: int | None
+    active: bool | None
+    download_progress: int | None
+    upgrade_progress: int | None
+    speed: int | None
+    file_size: int | None
+    upgrade_result: int | None
+    error_code: int | None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -1100,6 +1139,158 @@ def find_file_transfer_status(
     )
 
 
+def find_self_check_status(
+    messages: tuple[DecodedMqttMessage, ...],
+) -> SelfCheckStatus:
+    """Find the latest self-check or calibration progress."""
+    active = None
+    progress = None
+    status = None
+    error_count = None
+
+    for decoded_message in messages:
+        payload = decoded_message.payload
+        if not isinstance(payload, dict):
+            continue
+        if _optional_int(payload.get("commandType")) != SELF_CHECK_COMMAND:
+            continue
+
+        progress = _optional_int(payload.get("progress"))
+        status = _optional_int(payload.get("status"))
+        result = payload.get("result")
+        if isinstance(result, dict):
+            error_count = _optional_int(result.get("err_cnt"))
+        if progress is not None:
+            active = progress < 100
+        if status == 3:
+            active = False
+
+    return SelfCheckStatus(
+        active=active,
+        progress=progress,
+        status=status,
+        error_count=error_count,
+    )
+
+
+def find_firmware_update_status(
+    messages: tuple[DecodedMqttMessage, ...],
+) -> FirmwareUpdateStatus:
+    """Find the latest firmware update state from decoded MQTT messages."""
+    available = None
+    current_version = None
+    target_version = None
+    forced = None
+    upgrade_flag = None
+    release_note = None
+    reply = None
+    active = None
+    download_progress = None
+    upgrade_progress = None
+    speed = None
+    file_size = None
+    upgrade_result = None
+    error_code = None
+
+    for decoded_message in messages:
+        payload = decoded_message.payload
+        if not isinstance(payload, dict):
+            continue
+        command_type = _optional_int(payload.get("commandType"))
+        if command_type not in (
+            FIRMWARE_INFO_COMMAND,
+            FIRMWARE_UPDATE_PROGRESS_COMMAND,
+            FIRMWARE_UPDATE_NOTICE_COMMAND,
+            FIRMWARE_UPDATE_RESULT_COMMAND,
+        ):
+            continue
+
+        parsed_reply = _optional_int(payload.get("reply"))
+        if parsed_reply is not None:
+            reply = parsed_reply
+        if command_type in (FIRMWARE_INFO_COMMAND, FIRMWARE_UPDATE_NOTICE_COMMAND):
+            raw_current = payload.get("currVer")
+            raw_target = payload.get("tagerVer")
+            raw_note = payload.get("releaseNote")
+            if isinstance(raw_current, str):
+                current_version = raw_current
+            if isinstance(raw_target, str):
+                target_version = raw_target
+            if isinstance(raw_note, str):
+                release_note = raw_note
+
+            parsed_forced = _optional_bool(payload.get("forceUpgrade"))
+            if parsed_forced is not None:
+                forced = parsed_forced
+            parsed_upgrade_flag = _optional_int(payload.get("upgradeFlag"))
+            if parsed_upgrade_flag is not None:
+                upgrade_flag = parsed_upgrade_flag
+
+            parsed_available = _firmware_target_differs(
+                current_version,
+                target_version,
+            )
+            if parsed_available is False:
+                parsed_available = _optional_bool(payload.get("isUpgrade"))
+            if parsed_available is not None:
+                available = parsed_available
+
+            package = payload.get("full_package")
+            if isinstance(package, dict):
+                parsed_file_size = _optional_int(package.get("file_size"))
+                if parsed_file_size:
+                    file_size = parsed_file_size
+            parsed_file_size = _optional_int(payload.get("file_size"))
+            if parsed_file_size:
+                file_size = parsed_file_size
+
+        elif command_type == FIRMWARE_UPDATE_PROGRESS_COMMAND:
+            parsed_download = _optional_int(payload.get("download"))
+            parsed_upgrade = _optional_int(payload.get("upgrade"))
+            if parsed_download is not None:
+                download_progress = parsed_download
+            if parsed_upgrade is not None:
+                upgrade_progress = parsed_upgrade
+                active = parsed_upgrade < 100
+            parsed_speed = _optional_int(payload.get("speed"))
+            if parsed_speed is not None:
+                speed = parsed_speed
+            parsed_file_size = _optional_int(payload.get("file_size"))
+            if parsed_file_size:
+                file_size = parsed_file_size
+            parsed_forced = _optional_bool(payload.get("forceUpgrade"))
+            if parsed_forced is not None:
+                forced = parsed_forced
+
+        elif command_type == FIRMWARE_UPDATE_RESULT_COMMAND:
+            raw_current = payload.get("currVer")
+            if isinstance(raw_current, str):
+                current_version = raw_current
+            upgrade_result = _optional_int(payload.get("upgradeResult"))
+            error_code = _optional_int(payload.get("errorCode"))
+            active = False
+            if upgrade_result == 1 and error_code in (None, 0):
+                available = False
+                target_version = current_version or target_version
+
+    return FirmwareUpdateStatus(
+        available=available,
+        current_version=current_version,
+        target_version=target_version,
+        forced=forced,
+        upgrade_flag=upgrade_flag,
+        release_note=release_note,
+        reply=reply,
+        active=active,
+        download_progress=download_progress,
+        upgrade_progress=upgrade_progress,
+        speed=speed,
+        file_size=file_size,
+        upgrade_result=upgrade_result,
+        error_code=error_code,
+    )
+
+
 def find_notification_sound_status(
     messages: tuple[DecodedMqttMessage, ...],
 ) -> NotificationSoundStatus:
@@ -1301,6 +1492,17 @@ def _optional_bool(value: Any) -> bool | None:
     if parsed is None:
         return None
     return bool(parsed)
+
+
+def _firmware_target_differs(
+    current_version: str | None,
+    target_version: str | None,
+) -> bool | None:
+    if not target_version:
+        return False
+    if not current_version:
+        return True
+    return current_version != target_version
 
 
 def _accessory_name(plate_type: int | None, attachment_type: int | None) -> str | None:

@@ -42,10 +42,12 @@ from .runtime import (
     find_design_preparation_status,
     find_fill_light_status,
     find_file_transfer_status,
+    find_firmware_update_status,
     find_ink_injection_status,
     find_notification_sound_status,
     find_print_job_status,
     find_printer_status,
+    find_self_check_status,
     find_status_check_status,
     find_test_print_status,
     find_white_ink_recovery_status,
@@ -394,11 +396,19 @@ def _data_from_live_result(
     status_check_status = find_status_check_status(decoded_messages)
     test_print_status = find_test_print_status(decoded_messages)
     print_job_status = find_print_job_status(decoded_messages)
+    self_check_status = find_self_check_status(decoded_messages)
+    firmware_update_status = find_firmware_update_status(decoded_messages)
     notification_sound_status = find_notification_sound_status(decoded_messages)
     fill_light_status = find_fill_light_status(decoded_messages)
-    online = ink_status is not None or printer_status.state is not None
+    online = (
+        ink_status is not None
+        or printer_status.state is not None
+        or firmware_update_status.reply is not None
+    )
     print_status = printer_status.name
-    if ink_injection_status.active:
+    if firmware_update_status.active:
+        print_status = "Firmware updating"
+    elif ink_injection_status.active:
         print_status = "Injecting ink"
     elif white_ink_recovery_status.active:
         print_status = "White ink recovery"
@@ -412,6 +422,8 @@ def _data_from_live_result(
         print_status = "Test printing"
     elif print_job_status.active and print_status in (None, "Printing"):
         print_status = "Printing"
+    elif self_check_status.active and print_status in (None, "Calibrating"):
+        print_status = "Calibrating"
 
     return {
         "availability": "online" if online else "unknown",
@@ -458,6 +470,12 @@ def _data_from_live_result(
             "remaining_time": print_job_status.remaining_time,
             "elapsed_time": print_job_status.elapsed_time,
         },
+        "self_check": {
+            "active": self_check_status.active,
+            "progress": self_check_status.progress,
+            "status": self_check_status.status,
+            "error_count": self_check_status.error_count,
+        },
         "e1_controls": {
             "notification_sound": {
                 "enabled": notification_sound_status.enabled,
@@ -468,7 +486,25 @@ def _data_from_live_result(
                 "level": fill_light_status.level,
             },
         },
-        "firmware_version": firmware_version,
+        "firmware_version": firmware_update_status.current_version
+        or firmware_version,
+        "firmware_update": {
+            "available": firmware_update_status.available,
+            "current_version": firmware_update_status.current_version
+            or firmware_version,
+            "target_version": firmware_update_status.target_version,
+            "forced": firmware_update_status.forced,
+            "upgrade_flag": firmware_update_status.upgrade_flag,
+            "release_note": firmware_update_status.release_note,
+            "reply": firmware_update_status.reply,
+            "active": firmware_update_status.active,
+            "download_progress": firmware_update_status.download_progress,
+            "upgrade_progress": firmware_update_status.upgrade_progress,
+            "speed": firmware_update_status.speed,
+            "file_size": firmware_update_status.file_size,
+            "upgrade_result": firmware_update_status.upgrade_result,
+            "error_code": firmware_update_status.error_code,
+        },
         "current_accessory": accessory_status.name,
         "current_accessory_details": {
             "attachment_type": accessory_status.attachment_type,

@@ -9,7 +9,7 @@ from homeassistant.helpers import entity_registry as er
 
 from .const import CONF_AUTH_TOKEN, CONF_DEVICE_SN, DOMAIN
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.SELECT]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.SELECT, Platform.UPDATE]
 STALE_E1_CONTROL_ENTITIES: tuple[tuple[Platform, str], ...] = (
     (Platform.SENSOR, "notification_sound"),
     (Platform.SENSOR, "notification_sound_level"),

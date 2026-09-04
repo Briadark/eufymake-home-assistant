@@ -505,6 +505,152 @@ def test_coordinator_live_data_exposes_file_transfer_progress() -> None:
     }
 
 
+def test_coordinator_live_data_exposes_firmware_update_progress() -> None:
+    _stub_homeassistant()
+    package = types.ModuleType("custom_components.eufymake_e1")
+    package.__path__ = [str(COMPONENT_DIR)]
+    sys.modules["custom_components.eufymake_e1"] = package
+    sys.modules["custom_components.eufymake_e1.const"] = _load_real_const()
+
+    runtime = _load_module(
+        "custom_components.eufymake_e1.runtime",
+        COMPONENT_DIR / "runtime.py",
+    )
+    coordinator = _load_module(
+        "custom_components.eufymake_e1.coordinator",
+        COMPONENT_DIR / "coordinator.py",
+    )
+
+    data = coordinator._data_from_live_result(
+        None,
+        decoded_messages=(
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1000,
+                    "status": {
+                        "state": 6,
+                        "step": 1,
+                        "ext": {"maintainable": 1},
+                    },
+                },
+                command_type=1000,
+            ),
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/command/reply",
+                variant="cbc",
+                payload={
+                    "commandType": 1002,
+                    "currVer": "4.0.2",
+                    "isUpgrade": 1,
+                    "upgradeFlag": 1,
+                    "tagerVer": "4.0.7",
+                    "releaseNote": "New firmware",
+                    "full_package": {"file_size": 373628832},
+                    "reply": 0,
+                },
+                command_type=1002,
+            ),
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1047,
+                    "download": 100,
+                    "upgrade": 43,
+                    "speed": 0,
+                    "forceUpgrade": 0,
+                    "file_size": 0,
+                },
+                command_type=1047,
+            ),
+        ),
+        firmware_version="4.0.2",
+        mqtt_online=True,
+        p2p_online=None,
+    )
+
+    assert data["print_status"] == "Firmware updating"
+    assert data["firmware_version"] == "4.0.2"
+    assert data["firmware_update"] == {
+        "available": True,
+        "current_version": "4.0.2",
+        "target_version": "4.0.7",
+        "forced": False,
+        "upgrade_flag": 1,
+        "release_note": "New firmware",
+        "reply": 0,
+        "active": True,
+        "download_progress": 100,
+        "upgrade_progress": 43,
+        "speed": 0,
+        "file_size": 373628832,
+        "upgrade_result": None,
+        "error_code": None,
+    }
+
+
+def test_coordinator_live_data_exposes_reboot_calibration_state() -> None:
+    _stub_homeassistant()
+    package = types.ModuleType("custom_components.eufymake_e1")
+    package.__path__ = [str(COMPONENT_DIR)]
+    sys.modules["custom_components.eufymake_e1"] = package
+    sys.modules["custom_components.eufymake_e1.const"] = _load_real_const()
+
+    runtime = _load_module(
+        "custom_components.eufymake_e1.runtime",
+        COMPONENT_DIR / "runtime.py",
+    )
+    coordinator = _load_module(
+        "custom_components.eufymake_e1.coordinator",
+        COMPONENT_DIR / "coordinator.py",
+    )
+
+    data = coordinator._data_from_live_result(
+        None,
+        decoded_messages=(
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1000,
+                    "status": {
+                        "state": 9,
+                        "step": 0,
+                        "ext": {"maintainable": 1},
+                    },
+                },
+                command_type=1000,
+            ),
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1123,
+                    "status": 0,
+                    "progress": 72,
+                    "result": {},
+                },
+                command_type=1123,
+            ),
+        ),
+        firmware_version="4.0.7",
+        mqtt_online=True,
+        p2p_online=None,
+    )
+
+    assert data["print_status"] == "Calibrating"
+    assert data["print_status_details"]["state"] == 9
+    assert data["print_status_details"]["step"] == 0
+    assert data["self_check"] == {
+        "active": True,
+        "progress": 72,
+        "status": 0,
+        "error_count": None,
+    }
+
+
 def test_coordinator_live_data_exposes_e1_sound_and_light_settings() -> None:
     _stub_homeassistant()
     package = types.ModuleType("custom_components.eufymake_e1")
@@ -1213,6 +1359,151 @@ def test_runtime_file_transfer_status_maps_progress_and_completion() -> None:
     assert status.result == 1
 
 
+def test_runtime_self_check_status_maps_progress_and_completion() -> None:
+    _stub_homeassistant()
+    runtime = _load_module(
+        "custom_components.eufymake_e1.runtime",
+        COMPONENT_DIR / "runtime.py",
+    )
+
+    active = runtime.find_self_check_status(
+        (
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={"commandType": 1123, "status": 0, "progress": 72},
+                command_type=1123,
+            ),
+        )
+    )
+    complete = runtime.find_self_check_status(
+        (
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1123,
+                    "status": 3,
+                    "progress": 100,
+                    "result": {"err_cnt": 0, "err_buf": []},
+                },
+                command_type=1123,
+            ),
+        )
+    )
+
+    assert active.active is True
+    assert active.progress == 72
+    assert active.status == 0
+    assert active.error_count is None
+    assert complete.active is False
+    assert complete.progress == 100
+    assert complete.status == 3
+    assert complete.error_count == 0
+
+
+def test_runtime_firmware_update_status_maps_available_progress_and_completion() -> None:
+    _stub_homeassistant()
+    runtime = _load_module(
+        "custom_components.eufymake_e1.runtime",
+        COMPONENT_DIR / "runtime.py",
+    )
+
+    status = runtime.find_firmware_update_status(
+        (
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/command/reply",
+                variant="cbc",
+                payload={
+                    "commandType": 1002,
+                    "currVer": "4.0.2",
+                    "isUpgrade": 1,
+                    "upgradeFlag": 1,
+                    "tagerVer": "4.0.7",
+                    "releaseNote": "New firmware",
+                    "full_package": {"file_size": 373628832},
+                    "reply": 0,
+                },
+                command_type=1002,
+            ),
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1047,
+                    "download": 100,
+                    "upgrade": 43,
+                    "speed": 0,
+                    "forceUpgrade": 0,
+                    "file_size": 0,
+                },
+                command_type=1047,
+            ),
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/notice",
+                variant="cbc",
+                payload={
+                    "commandType": 1054,
+                    "currVer": "4.0.7",
+                    "upgradeResult": 1,
+                    "errorCode": 0,
+                },
+                command_type=1054,
+            ),
+        )
+    )
+
+    assert status.available is False
+    assert status.current_version == "4.0.7"
+    assert status.target_version == "4.0.7"
+    assert status.forced is False
+    assert status.upgrade_flag == 1
+    assert status.release_note == "New firmware"
+    assert status.reply == 0
+    assert status.active is False
+    assert status.download_progress == 100
+    assert status.upgrade_progress == 43
+    assert status.speed == 0
+    assert status.file_size == 373628832
+    assert status.upgrade_result == 1
+    assert status.error_code == 0
+
+
+def test_runtime_firmware_update_status_prefers_target_version_difference() -> None:
+    _stub_homeassistant()
+    runtime = _load_module(
+        "custom_components.eufymake_e1.runtime",
+        COMPONENT_DIR / "runtime.py",
+    )
+
+    status = runtime.find_firmware_update_status(
+        (
+            runtime.DecodedMqttMessage(
+                topic="/phone/maker/AKTEST/command/reply",
+                variant="cbc",
+                payload={
+                    "commandType": 1002,
+                    "currVer": "4.0.7",
+                    "isUpgrade": 0,
+                    "upgradeFlag": 1,
+                    "tagerVer": "4.0.9",
+                    "releaseNote": "New firmware",
+                    "full_package": {"file_size": 373624224},
+                    "reply": 0,
+                },
+                command_type=1002,
+            ),
+        )
+    )
+
+    assert status.available is True
+    assert status.current_version == "4.0.7"
+    assert status.target_version == "4.0.9"
+    assert status.forced is None
+    assert status.upgrade_flag == 1
+    assert status.file_size == 373624224
+
+
 def test_runtime_notification_sound_status_maps_toggle_and_level() -> None:
     _stub_homeassistant()
     runtime = _load_module(
@@ -1292,7 +1583,66 @@ def test_runtime_e1_read_only_settings_queries_are_passive_only() -> None:
         COMPONENT_DIR / "runtime.py",
     )
 
-    assert runtime.E1_READ_ONLY_SETTINGS_QUERY_COMMANDS == ()
+    assert runtime.E1_READ_ONLY_SETTINGS_QUERY_COMMANDS == (
+        {"commandType": 1002},
+    )
+
+
+def test_update_entity_exposes_firmware_state() -> None:
+    _stub_homeassistant()
+    package = types.ModuleType("custom_components.eufymake_e1")
+    package.__path__ = [str(COMPONENT_DIR)]
+    sys.modules["custom_components.eufymake_e1"] = package
+    sys.modules["custom_components.eufymake_e1.const"] = _load_real_const()
+    sys.modules["custom_components.eufymake_e1.device_info"] = _load_module(
+        "custom_components.eufymake_e1.device_info",
+        COMPONENT_DIR / "device_info.py",
+    )
+    sys.modules["custom_components.eufymake_e1.coordinator"] = _load_module(
+        "custom_components.eufymake_e1.coordinator",
+        COMPONENT_DIR / "coordinator.py",
+    )
+    update = _load_module(
+        "custom_components.eufymake_e1.update",
+        COMPONENT_DIR / "update.py",
+    )
+
+    entry = types.SimpleNamespace(
+        data={
+            "device_sn": "AKTEST",
+            "firmware_version": "4.0.2",
+        }
+    )
+    coordinator = types.SimpleNamespace(
+        data={
+            "firmware_version": "4.0.2",
+            "firmware_update": {
+                "available": True,
+                "current_version": "4.0.2",
+                "target_version": "4.0.7",
+                "forced": False,
+                "upgrade_flag": 1,
+                "release_note": "Line one\nLine two",
+                "active": True,
+                "download_progress": 100,
+                "upgrade_progress": 76,
+                "speed": 0,
+                "file_size": 373628832,
+                "upgrade_result": None,
+                "error_code": None,
+                "reply": 0,
+            },
+        }
+    )
+
+    entity = update.EufyMakeE1FirmwareUpdate(coordinator, entry)
+
+    assert entity.installed_version == "4.0.2"
+    assert entity.latest_version == "4.0.7"
+    assert entity.in_progress is True
+    assert entity.update_percentage == 76
+    assert entity.release_summary == "Line one Line two"
+    assert entity.extra_state_attributes["file_size"] == 373628832
 
 
 def test_runtime_command_state_echo_matches_requested_payload() -> None:
@@ -1487,13 +1837,25 @@ def _load_module(name: str, path: Path):
 
 def _stub_homeassistant() -> None:
     homeassistant = types.ModuleType("homeassistant")
+    components = types.ModuleType("homeassistant.components")
+    update = types.ModuleType("homeassistant.components.update")
     config_entries = types.ModuleType("homeassistant.config_entries")
     core = types.ModuleType("homeassistant.core")
     exceptions = types.ModuleType("homeassistant.exceptions")
     helpers = types.ModuleType("homeassistant.helpers")
+    entity_platform = types.ModuleType("homeassistant.helpers.entity_platform")
     update_coordinator = types.ModuleType(
         "homeassistant.helpers.update_coordinator"
     )
+
+    class UpdateDeviceClass:
+        FIRMWARE = "firmware"
+
+    class UpdateEntity:
+        pass
+
+    class UpdateEntityFeature:
+        PROGRESS = 1
 
     class ConfigEntry:
         pass
@@ -1514,20 +1876,38 @@ def _stub_homeassistant() -> None:
     class UpdateFailed(Exception):
         pass
 
+    class CoordinatorEntity:
+        def __class_getitem__(cls, item):
+            return cls
+
+        def __init__(self, coordinator, *args, **kwargs):
+            self.coordinator = coordinator
+
+    update.UpdateDeviceClass = UpdateDeviceClass
+    update.UpdateEntity = UpdateEntity
+    update.UpdateEntityFeature = UpdateEntityFeature
     config_entries.ConfigEntry = ConfigEntry
     core.HomeAssistant = HomeAssistant
     exceptions.ConfigEntryAuthFailed = ConfigEntryAuthFailed
+    entity_platform.AddEntitiesCallback = object
     update_coordinator.DataUpdateCoordinator = DataUpdateCoordinator
+    update_coordinator.CoordinatorEntity = CoordinatorEntity
     update_coordinator.UpdateFailed = UpdateFailed
+    components.update = update
+    helpers.entity_platform = entity_platform
     helpers.update_coordinator = update_coordinator
+    homeassistant.components = components
     homeassistant.config_entries = config_entries
     homeassistant.core = core
     homeassistant.exceptions = exceptions
     homeassistant.helpers = helpers
 
     sys.modules["homeassistant"] = homeassistant
+    sys.modules["homeassistant.components"] = components
+    sys.modules["homeassistant.components.update"] = update
     sys.modules["homeassistant.config_entries"] = config_entries
     sys.modules["homeassistant.core"] = core
     sys.modules["homeassistant.exceptions"] = exceptions
     sys.modules["homeassistant.helpers"] = helpers
+    sys.modules["homeassistant.helpers.entity_platform"] = entity_platform
     sys.modules["homeassistant.helpers.update_coordinator"] = update_coordinator
